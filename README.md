@@ -121,5 +121,3 @@ uv run --python 3.12 --no-project --with pytest python -m pytest -q       # 試�
 MIT ライセンスです([LICENSE](LICENSE))。
 
 macOS は Apple Inc. の商標です。Zoom・Google Meet・Microsoft Teams・Obsidian・Claude・ChatGPT などの名称は、それぞれの権利者の商標です。本プロジェクトはこれらの企業とは関係ありません。
-
-アイコンとキャラクター「ナギ」の絵は、NovelAI で作成したものです。
