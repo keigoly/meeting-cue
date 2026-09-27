@@ -1,0 +1,1459 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Cue!</title>
+<style>
+  /* 見た目(2026-09-27 keigoly様: 公開前に独自に・Gemini の 4 案から「B パステル」)。アイコンと同じ空色の明るい地・
+     白いカード・きらめき・左下で吹き出しを話すナギ。基本色(ミント)は塗りに使い、明るい地の文字には濃くした色(*-text)を使う */
+  :root { --bg: #e9f9f9; --bg2: #d4f1f2; --side: #c8efed; --panel: #ffffff; --panel-hi: #f3fafa; --track: #d9ebee;
+          --line: rgba(27,59,90,0.10); --line-hi: rgba(27,59,90,0.18);
+          --fg: #1b2440; --dim: #55647e; --faint: #8593a9;
+          /* 基本色・相手・自分は設定(⚙)で変えられる(~/.meeting-cue/ui.json)。塗り・薄色・文字の色は基本色から作る */
+          --accent: #3ed6c8; --other: #62b6ff; --self: #8f8cff;
+          --accent-ink: #0b1322;   /* 基本色で塗った上の文字(基本色の明るさで applyColors が濃紺か白を選ぶ) */
+          --accent-text: color-mix(in srgb, var(--accent) 45%, #0b3d44);
+          --other-text: color-mix(in srgb, var(--other) 55%, #0b2d55);
+          --self-text: color-mix(in srgb, var(--self) 60%, #231a66);
+          --accent-bg: color-mix(in srgb, var(--accent) 18%, #ffffff);
+          --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+          --rec: #ff5d6c; --rec-text: #d93446; --star: #ffd166; --star-bg: #fff5d6; --know: #2f6fd0;
+          --shadow: 0 6px 20px rgba(var(--sh),0.08), 0 1px 3px rgba(var(--sh),0.06);
+          --mono: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+          /* 明るい地の固定の色(ダークで入れ替える) */
+          --sh: 27,70,100; --glass: 255,255,255; --overlay: rgba(20,50,70,.22); --wave-bg: #eef6f7; --warn: #9a6b00;
+          --rec-bg: color-mix(in srgb, var(--rec) 14%, #fff); --bubble: #fff; --wave-dim: rgba(27,59,90,0.20); --playhead: rgba(27,36,64,0.85);
+          --nagi-glow: none;
+          color-scheme: light;
+  }
+  /* ダーク(2026-09-27 keigoly様): 同じ形のまま夜の配色。⚙ の外観 = システムに合わせる / ライト / ダーク(html の data-theme) */
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #0f1d29; --bg2: #0a1520; --side: #0e2630; --panel: #172838; --panel-hi: #1e3345; --track: #0b1822;
+    --line: rgba(160,215,230,0.12); --line-hi: rgba(160,215,230,0.22);
+    --fg: #e4f1f5; --dim: #9fb4c3; --faint: #6f8798;
+    --accent-text: color-mix(in srgb, var(--accent) 82%, #ffffff);
+    --other-text: color-mix(in srgb, var(--other) 82%, #ffffff);
+    --self-text: color-mix(in srgb, var(--self) 78%, #ffffff);
+    --accent-bg: color-mix(in srgb, var(--accent) 16%, var(--panel));
+    --rec-text: #ff8d99; --rec-bg: color-mix(in srgb, var(--rec) 20%, var(--panel)); --star-bg: rgba(255,209,102,0.13); --know: #9fc2ff; --warn: #ffd166;
+    --sh: 0,0,0; --glass: 30,52,70; --overlay: rgba(0,0,0,.45); --wave-bg: #0f1f2c; --bubble: #1e3345;
+    --wave-dim: rgba(200,225,240,0.22); --playhead: rgba(230,243,246,0.9);
+    --shadow: 0 6px 20px rgba(0,0,0,0.28), 0 1px 3px rgba(0,0,0,0.22);
+    --nagi-glow: drop-shadow(0 0 1.2px rgba(210,240,248,0.55)) drop-shadow(0 0 5px rgba(120,205,225,0.22));   /* ダークで濃紺の髪を地から離す薄い縁の光 */
+    color-scheme: dark; } }
+  :root[data-theme="dark"] {
+    --bg: #0f1d29; --bg2: #0a1520; --side: #0e2630; --panel: #172838; --panel-hi: #1e3345; --track: #0b1822;
+    --line: rgba(160,215,230,0.12); --line-hi: rgba(160,215,230,0.22);
+    --fg: #e4f1f5; --dim: #9fb4c3; --faint: #6f8798;
+    --accent-text: color-mix(in srgb, var(--accent) 82%, #ffffff);
+    --other-text: color-mix(in srgb, var(--other) 82%, #ffffff);
+    --self-text: color-mix(in srgb, var(--self) 78%, #ffffff);
+    --accent-bg: color-mix(in srgb, var(--accent) 16%, var(--panel));
+    --rec-text: #ff8d99; --rec-bg: color-mix(in srgb, var(--rec) 20%, var(--panel)); --star-bg: rgba(255,209,102,0.13); --know: #9fc2ff; --warn: #ffd166;
+    --sh: 0,0,0; --glass: 30,52,70; --overlay: rgba(0,0,0,.45); --wave-bg: #0f1f2c; --bubble: #1e3345;
+    --wave-dim: rgba(200,225,240,0.22); --playhead: rgba(230,243,246,0.9);
+    --shadow: 0 6px 20px rgba(0,0,0,0.28), 0 1px 3px rgba(0,0,0,0.22);
+    --nagi-glow: drop-shadow(0 0 1.2px rgba(210,240,248,0.55)) drop-shadow(0 0 5px rgba(120,205,225,0.22));   /* ダークで濃紺の髪を地から離す薄い縁の光 */
+    color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+               font: 13px/1.55 -apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { display: grid; grid-template-columns: 284px 1fr; overflow: hidden; }
+  body.noside { grid-template-columns: 0 1fr; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  svg.i { width: 16px; height: 16px; flex: none; display: block; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* サイドバー */
+  aside { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .sidetop { display: flex; align-items: center; gap: 4px; padding: 14px 10px 8px 18px; }
+  .brand { flex: 1; font-weight: 800; font-size: 16px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; }
+  .brand i { font-style: normal; color: var(--accent-text); }
+  .iconbtn { width: 30px; height: 30px; border-radius: 9px; border: none; background: transparent; color: var(--dim); display: grid; place-items: center; padding: 0; }
+  .iconbtn:hover { background: rgba(var(--glass),0.6); color: var(--fg); }
+  /* 録音中のカード: REC の札・題名・経過時間、相手(スピーカー)/ 自分(マイク)の波形を話し手の色で */
+  #reccard { margin: 4px 12px 10px; padding: 12px 12px 10px; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow);
+             display: none; cursor: pointer; }
+  #reccard.on { display: block; }
+  #reccard:hover { box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
+  #reccard .top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .tally { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; letter-spacing: .12em; color: var(--accent-text);
+           background: var(--accent-bg); border-radius: 7px; padding: 2px 7px 2px 6px; flex: none; }
+  .tally::before { content: ""; width: 6px; height: 6px; border-radius: 3px; background: var(--rec); animation: blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  #rc-title { flex: 1; min-width: 0; font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #rc-time { font: 700 13px/1 ui-monospace, "SF Mono", Menlo, monospace; }
+  #reccard .row { display: grid; grid-template-columns: 14px 1fr; align-items: center; gap: 8px; margin-top: 6px; }
+  #reccard .row svg { width: 14px; height: 14px; }
+  #reccard .row.sys { color: var(--other-text); } #reccard .row.mic { color: var(--self-text); }
+  #reccard canvas { width: 100%; height: 24px; background: var(--wave-bg); border-radius: 7px; }
+  #list { overflow-y: auto; flex: 1; padding: 0 12px 12px; min-height: 60px; }
+  .grp { color: var(--dim); font-size: 11.5px; font-weight: 700; letter-spacing: .06em; margin: 14px 6px 6px; display: flex; align-items: center; gap: 8px; }
+  .grp::after { content: ""; flex: 1; height: 1px; background: var(--line-hi); }
+  .item { position: relative; padding: 9px 12px; border-radius: 12px; cursor: pointer; margin: 2px 0; }
+  .item:hover { background: rgba(var(--glass),0.45); }
+  .item.sel { background: var(--panel); box-shadow: var(--shadow); }
+  .item.sel::before { content: ""; position: absolute; left: 4px; top: 12px; bottom: 12px; width: 3px; border-radius: 2px; background: var(--accent); }
+  .item .t { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .m { display: flex; justify-content: space-between; align-items: center; color: var(--dim); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .item .q { color: var(--accent-text); background: var(--accent-bg); border-radius: 7px; padding: 0 6px; margin-left: 6px; font-size: 11px; font-weight: 700; }
+  .item .cloud { color: var(--dim); margin-left: 4px; }
+  .item.ctx { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* 左下のナギ: 場面に合わせた一言を吹き出しで(⚙ の「ナギの台詞」をオフにすると隠す) */
+  #nagi { position: relative; flex: none; height: 190px; pointer-events: none; }
+  #nagi img { position: absolute; left: 12px; bottom: 0; width: 118px; height: auto; filter: var(--nagi-glow); }   /* ちびの透過の絵(236x320 = 2 倍・6 表情とも頭の位置と大きさが同じ・2026-09-27) */
+  /* 吹き出し(2026-09-27 直し): 絵の右上(頭の上)に文の長さで置き、しっぽ(SVG)の先を頭へ向ける。
+     しっぽの塗りが本体の枠の継ぎ目を隠し、しっぽの線は枠の線の中心から出る(以前は傾けた四角で、線が枠とつながらず浮いていた) */
+  #nagi .bubble { position: absolute; left: 50px; bottom: 142px; width: max-content; max-width: 222px; background: var(--bubble);
+                  border: 1.5px solid var(--fg); border-radius: 16px; padding: 7px 12px; font-size: 11.5px; line-height: 1.55; font-weight: 700;
+                  box-shadow: var(--shadow); white-space: nowrap; }
+  #nagi-say { display: block; max-width: 195px; overflow: hidden; text-overflow: ellipsis; }   /* 1 行に固定(はみ出したら …) */
+  #nagi .bubble .tail { position: absolute; left: 14px; bottom: -13px; width: 18px; height: 13px; overflow: visible; }
+  #nagi .bubble .tail .f { fill: var(--bubble); }
+  #nagi .bubble .tail .s { fill: none; stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+  #nagi .spark { position: absolute; color: var(--star); font-size: 14px; }
+  body.nonagi #nagi { display: none; }
+  @media (max-height: 640px) { #nagi { display: none; } }
+  /* 一覧の右クリック(2026-09-26・macOS のメニューに寄せる) */
+  #ctxmenu { position: fixed; z-index: 30; display: none; min-width: 230px; padding: 5px; border-radius: 12px;
+             background: rgba(var(--glass),0.92); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+             border: 1px solid var(--line-hi); box-shadow: 0 12px 32px rgba(var(--sh),0.18); font-size: 13px; }
+  #ctxmenu.open { display: block; }
+  #ctxmenu button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--fg);
+                    padding: 5px 12px; border-radius: 7px; font: inherit; white-space: nowrap; }
+  #ctxmenu button:hover:not(.off) { background: var(--accent); color: var(--accent-ink); }
+  #ctxmenu button.off { color: var(--faint); cursor: default; }
+  #ctxmenu hr { border: none; border-top: 1px solid var(--line-hi); margin: 5px 10px; }
+  #askdlg select { width: 100%; margin-top: 10px; background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px; font: inherit; }
+  .pill.danger { background: var(--rec); border-color: transparent; color: #fff; }
+  /* 本文(空色の地にきらめき) */
+  main { display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+         background-color: var(--bg);
+         background-image: var(--sp1), var(--sp2), var(--sp1), var(--sp3), var(--sp2), linear-gradient(170deg, var(--bg), var(--bg2));
+         background-repeat: no-repeat;
+         background-position: right 22px top 150px, right 52px top 196px, right 30px bottom 90px, right 18px top 330px, left 10px bottom 160px, 0 0;
+         background-size: 16px, 11px, 13px, 7px, 10px, 100% 100%; }
+  :root { --sp1: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%237fcfd6' d='M12 0C13 8 16 11 24 12C16 13 13 16 12 24C11 16 8 13 0 12C8 11 11 8 12 0Z'/%3E%3C/svg%3E");
+          --sp2: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%238f9ad8' d='M12 0C13 8 16 11 24 12C16 13 13 16 12 24C11 16 8 13 0 12C8 11 11 8 12 0Z'/%3E%3C/svg%3E");
+          --sp3: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle fill='%239fc6d6' cx='12' cy='12' r='12'/%3E%3C/svg%3E"); }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 14px 22px 6px; }
+  .topbar .sp { flex: 1; }
+  .pill { border: 1px solid var(--line); border-radius: 12px; padding: 7px 15px; background: var(--panel); font-weight: 700; box-shadow: 0 1px 3px rgba(var(--sh),0.08);
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+  .pill:hover { background: var(--panel-hi); border-color: var(--line-hi); }
+  .pill.on { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+  .pill.on:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  #recbtn .dot { width: 10px; height: 10px; border-radius: 5px; background: var(--rec); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rec) 22%, transparent); display: inline-block; }
+  #recbtn.stop { background: var(--rec); border-color: transparent; color: #fff; box-shadow: 0 4px 12px color-mix(in srgb, var(--rec) 35%, transparent); }
+  #recbtn.stop .dot { background: #fff; border-radius: 2px; box-shadow: none; }
+  #recbtn:disabled { opacity: .55; cursor: default; }
+  /* 録音の開始 + ▾(クイック録音: 題名と立場を選ばずにすぐ始める・2026-09-27)。録音中・保存中は ▾ を出さない */
+  #recgroup { position: relative; display: flex; }
+  #recgroup.split #recbtn { border-radius: 12px 0 0 12px; padding-right: 12px; }
+  #recmore { display: none; border-radius: 0 12px 12px 0; padding: 7px 10px; margin-left: -1px; color: var(--dim); }
+  #recmore:hover { color: var(--fg); }
+  #recgroup.split #recmore { display: flex; align-items: center; }
+  #recmenu { position: absolute; right: 0; top: 42px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+             padding: 6px; display: none; z-index: 6; min-width: 290px; box-shadow: 0 14px 36px rgba(var(--sh),0.18); }
+  #recmenu.open { display: block; }
+  #recmenu button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: 9px; }
+  #recmenu button:hover { background: var(--accent-bg); }
+  #recmenu b { display: block; font-weight: 700; white-space: nowrap; }
+  #recmenu .s { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
+  .head { padding: 4px 34px 0; }
+  .titlerow { display: flex; align-items: center; gap: 10px; }
+  #title { font-size: 26px; font-weight: 800; color: var(--dim); outline: none; min-width: 60px; border-radius: 8px; padding: 0 6px; margin-left: -6px; }
+  #title.editable { cursor: text; color: var(--fg); }   /* 題名はクリックでそのまま編集(2026-09-26・鉛筆のボタンは廃止) */
+  #title[contenteditable="true"] { color: var(--fg); background: rgba(var(--glass),0.7); box-shadow: 0 0 0 2px var(--accent-soft); }
+  #title.editable:hover:not([contenteditable="true"]) { background: rgba(var(--glass),0.5); }
+  .titlerow .sp { flex: 1; }
+  .badge { font-size: 11px; font-weight: 800; letter-spacing: .04em; padding: 3px 10px; border-radius: 8px; }
+  .badge.rec { background: var(--rec-bg); color: var(--rec-text); }
+  .badge.local { background: var(--star); color: #3a2a00; }
+  .badge.paused { background: var(--track); color: var(--fg); }
+  #ops { position: relative; }
+  #opsmenu { position: absolute; right: 0; top: 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+             padding: 6px; display: none; z-index: 5; min-width: 230px; box-shadow: 0 14px 36px rgba(var(--sh),0.18); }
+  #opsmenu.open { display: block; }
+  #opsmenu button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 7px 10px; border-radius: 9px; }
+  #opsmenu button:hover { background: var(--accent-bg); }
+  #opsmenu .k { float: right; color: var(--faint); font: var(--mono); }
+  /* 見出しの下: 日時・状態などの札。待機中はナギの一言をカードで */
+  #meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; color: var(--dim); font-size: 12px; }
+  #meta .chip { background: rgba(var(--glass),0.65); border: 1px solid color-mix(in srgb, var(--accent) 55%, #fff); color: var(--accent-text);
+                border-radius: 8px; padding: 1px 9px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #meta .chip.live { color: var(--rec-text); border-color: color-mix(in srgb, var(--rec) 45%, #fff); }
+  .cue { display: flex; gap: 12px; align-items: baseline; background: var(--panel); border-radius: 16px; padding: 13px 18px; box-shadow: var(--shadow);
+         border-left: 4px solid var(--accent); color: var(--fg); font-size: 13px; line-height: 1.7; max-width: 680px; margin-top: 4px; }
+  .cue b { color: var(--accent-text); font-weight: 800; white-space: nowrap; }
+  #player { margin: 16px 0 0; display: none; }
+  #player .prow { display: flex; align-items: center; gap: 14px; background: var(--panel); border-radius: 18px; padding: 10px 16px 10px 10px; box-shadow: var(--shadow); }
+  .playbtn { width: 44px; height: 44px; border-radius: 14px; border: none; background: var(--accent); color: var(--accent-ink); font-size: 16px; flex: none; }
+  .playbtn:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  #pl-wave { flex: 1; height: 52px; cursor: pointer; min-width: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #pl-time { color: var(--dim); font: var(--mono); font-variant-numeric: tabular-nums; min-width: 110px; text-align: right; }
+  #pl-none { color: var(--faint); font-size: 12px; }
+  #pl-ch { width: 330px; display: none; }
+  body.reviewing .utt { cursor: pointer; }
+  body.reviewing .utt:hover { background: var(--panel-hi); }
+  .utt.playing { background: var(--accent-bg) !important; }
+  /* タブ: 溝の中の白い札(選んだものは基本色の文字)。件数の印は赤 */
+  .tabs { display: flex; gap: 2px; margin: 18px 34px 0; padding: 4px; background: var(--track); border-radius: 14px; align-self: flex-start; }
+  .tab { background: none; border: none; padding: 6px 18px; color: var(--dim); border-radius: 10px; font-weight: 700; display: inline-flex; align-items: center; }
+  .tab:hover { color: var(--fg); }
+  .tab.sel { color: var(--accent-text); background: var(--panel); box-shadow: 0 1px 4px rgba(var(--sh),0.12); }
+  .tab .n { margin-left: 6px; background: var(--rec); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 10.5px; line-height: 17px; display: none; }
+  .tab .n.on { display: inline-block; }
+  .pane { flex: 1; overflow-y: auto; margin: 14px 34px 22px; padding: 4px 0 0; display: none; min-height: 0; }
+  .pane.sel { display: block; }
+  body.idle .tabs, body.idle .pane { display: none; }   /* 記録を開いていない間は、タブと空のカードを出さない */
+  #p-transcript, #p-summary { background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); padding: 10px 14px; }
+  .empty { color: var(--faint); padding: 40px 0; text-align: center; }
+  /* 発言: 時刻 | 話し手の色の帯 | 話し手と本文。相手への質問は基本色の帯と薄塗り */
+  .utt { position: relative; display: grid; grid-template-columns: 44px 1fr; grid-template-areas: "at who" "at body"; column-gap: 18px;
+         padding: 7px 10px 8px 0; border-radius: 12px; }
+  .utt::before { content: ""; position: absolute; left: 52px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--other); }
+  .utt.mic::before { background: var(--self); }
+  .utt .at { grid-area: at; text-align: right; color: var(--faint); font: 11px/1.9 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .utt .who { grid-area: who; font-size: 11px; font-weight: 800; letter-spacing: .06em; line-height: 1.5; }
+  .utt > span:last-child { grid-area: body; font-size: 14.5px; line-height: 1.65; font-weight: 600; }
+  .utt.mic .who { color: var(--self-text); } .utt.system .who, .utt.room .who { color: var(--other-text); }
+  .utt .j { color: var(--faint); font-size: 11px; line-height: 1.5; margin-top: 1px; font-weight: 400; }
+  .utt.q { background: var(--accent-bg); }
+  .utt.q::before { background: var(--accent); }
+  .utt.q .j { color: var(--accent-text); font-weight: 700; }
+  #partial { color: var(--faint); font-style: italic; padding: 5px 10px 5px 62px; min-height: 1.5em; }
+  /* 回答候補のカード: 頭に「Q」の札・番号は丸・★ は黄色の丸 */
+  .card { border: 1.5px solid transparent; border-radius: 18px; padding: 14px 16px 12px; margin: 0 0 14px; background: var(--panel); box-shadow: var(--shadow);
+          transition: border-color .6s, box-shadow .6s; }
+  .card.new { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+  .card h3 { margin: 0 0 4px; font-size: 15px; line-height: 1.55; display: flex; gap: 10px; }
+  .card h3::before { content: "Q"; flex: none; width: 24px; height: 24px; margin-top: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+                     font-size: 12.5px; font-weight: 800; display: grid; place-items: center; }
+  .card .meta { color: var(--faint); font-size: 11px; padding-left: 34px; }
+  .card .intent { color: var(--accent-text); margin: 4px 0 2px 34px; font-size: 12.5px; font-weight: 600; }
+  .card .sec { color: var(--dim); font-size: 11px; font-weight: 800; letter-spacing: .08em; margin: 12px 0 4px 34px; }
+  .card .answers, .card .counters, .card .know { margin-left: 26px; }
+  .cand { display: flex; gap: 10px; padding: 7px 8px; border-radius: 11px; align-items: flex-start; }
+  .cand:hover { background: var(--panel-hi); }
+  .cand .n { flex: none; min-width: 24px; height: 22px; padding: 0 5px; border-radius: 11px; border: 1.5px solid var(--line-hi); color: var(--dim);
+             font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; display: grid; place-items: center; }
+  .cand .t { font-weight: 800; }
+  .cand .s { color: var(--dim); font-size: 11.5px; }
+  .cand.star { background: var(--star-bg); }
+  .cand.star .n { border-color: transparent; background: var(--star); color: #3a2a00; }
+  .cand.dim { opacity: .6; }
+  .cand .copy, .qrow .copy { margin-left: auto; color: var(--faint); cursor: pointer; font-size: 12px; padding: 0 2px; }
+  .cand .copy:hover, .qrow .copy:hover { color: var(--accent-text); }
+  .know { display: flex; flex-wrap: wrap; gap: 5px; padding-left: 8px; }
+  .know span { background: color-mix(in srgb, var(--know) 12%, transparent); color: var(--know); border-radius: 7px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+  #summary { white-space: pre-wrap; line-height: 1.8; padding: 6px 6px; }
+  .card .nagi { color: var(--fg); font-size: 12px; margin: 2px 0 4px 34px; }
+  .qbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+  .qbar .check { margin: 0 0 0 6px; color: var(--dim); font-size: 12px; }
+  .qstatus { color: var(--dim); font-size: 12px; margin-left: auto; }
+  .qstatus.busy { color: var(--accent-text); font-weight: 700; }
+  .plan .head { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; margin-bottom: 4px; padding: 0; }
+  .plan .head .st.run { color: var(--accent-text); }
+  .plan .head .st.cut { color: var(--star-text, var(--warn)); }
+  .qrow { display: flex; gap: 10px; padding: 7px 8px; border-radius: 11px; align-items: flex-start; }
+  .qrow .n { flex: none; min-width: 24px; height: 22px; padding: 0 5px; border-radius: 11px; border: 1.5px solid var(--line-hi); color: var(--dim);
+             font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; display: grid; place-items: center; }
+  .qrow .q { font-weight: 800; }
+  .qrow .a { color: var(--dim); font-size: 12px; }
+  .qrow .tm { color: var(--accent-text); font-size: 11px; background: var(--accent-bg); border-radius: 7px; padding: 0 6px; margin-left: 6px; white-space: nowrap; font-weight: 700; }
+  .qrow.star { background: var(--star-bg); }
+  .qrow.star .n { border-color: transparent; background: var(--star); color: #3a2a00; }
+  .qrow.dim { opacity: .6; }
+  body.reviewing .qbar { display: none; }
+  /* 開始の小窓・通知 */
+  #startdlg, .dlg { position: fixed; inset: 0; background: var(--overlay); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+                    display: none; align-items: center; justify-content: center; z-index: 10; }
+  #startdlg.open, .dlg.open { display: flex; }
+  #startdlg .box, .dlg .box { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 22px 24px; width: 410px;
+                              box-shadow: 0 24px 60px rgba(var(--sh),0.22); }
+  #startdlg h2, .dlg h2 { margin: 0 0 12px; font-size: 17px; font-weight: 800; }
+  .setrow { display: grid; grid-template-columns: 1fr 44px 76px; align-items: center; gap: 10px; margin: 10px 0; }
+  .setrow input[type=color] { width: 44px; height: 28px; border: 1px solid var(--line-hi); border-radius: 8px; background: none; padding: 0; cursor: pointer; }
+  .setrow code { color: var(--dim); font: var(--mono); }
+  .setnote { color: var(--faint); font-size: 11px; margin-top: 8px; line-height: 1.6; }
+  #startdlg label { display: block; color: var(--dim); font-size: 12px; font-weight: 600; margin: 12px 0 5px; }
+  #startdlg input[type=text] { width: 100%; background: var(--panel-hi); border: 1px solid var(--line-hi); color: var(--fg); border-radius: 11px; padding: 8px 11px; font: inherit; }
+  .seg { display: flex; background: var(--track); border-radius: 12px; padding: 3px; }
+  .seg button { flex: 1; border: none; background: none; padding: 6px; border-radius: 9px; color: var(--dim); font-weight: 700; }
+  .seg button:hover { color: var(--fg); }
+  .seg button.sel { background: var(--panel); color: var(--accent-text); box-shadow: 0 1px 4px rgba(var(--sh),0.12); }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  .check input { accent-color: var(--accent); }
+  .dlgbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .dlgbtns .sp { flex: 1; }
+  #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 20; max-width: 420px; }
+  .toast { position: relative; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 12px;
+           padding: 9px 12px 9px 34px; font-size: 12px; color: var(--fg); box-shadow: 0 12px 30px rgba(var(--sh),0.16); }
+  .toast .x { position: absolute; left: 8px; top: 8px; width: 18px; height: 18px; border: none; border-radius: 6px; padding: 0;
+              background: var(--track); color: var(--dim); font-size: 12px; line-height: 18px; text-align: center; }
+  .toast .x:hover { background: var(--line-hi); color: var(--fg); }
+  .toast.err { border-left-color: var(--rec); color: var(--rec-text); }
+  /* ナギの台詞(⚙ でオフにすると body.nonagi で隠す) */
+  .toast .who, .nagi b { color: var(--accent-text); font-weight: 800; margin-right: 6px; }
+  .card .nagi:empty, body.nonagi .card .nagi { display: none; }
+  .dlg .check { color: var(--fg); font-size: 13px; margin: 14px 0 0; }
+  /* 設定画面(FR-10b)と初回の案内 */
+  .dlg .box.wide { width: 560px; max-height: 86vh; overflow-y: auto; }
+  .setsec { color: var(--accent-text); font-size: 11px; font-weight: 800; letter-spacing: .1em; margin: 20px 0 2px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .setsec:first-of-type { border-top: none; padding-top: 0; margin-top: 4px; }
+  .setrow2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 4px; font-size: 13px; }
+  .dlg select, .dlg input[type=password] { background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px 8px; font: inherit; }
+  #set-repl { width: 100%; margin-top: 8px; background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 11px;
+              padding: 8px 10px; font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
+  .keyrow { background: var(--panel-hi); border: 1px solid var(--line); border-radius: 13px; padding: 9px 11px; margin: 8px 0; }
+  .keyrow .kname { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; }
+  .keyrow .kstat { font-weight: 400; color: var(--dim); font-size: 12px; }
+  .keyrow .kstat.on { color: var(--accent-text); font-weight: 700; }
+  .keyrow .kctl { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .keyrow .kctl input { flex: 1; min-width: 160px; }
+  .keyrow .kctl .pill { padding: 5px 10px; font-size: 12px; }
+  .keyrow .kmsg { font-size: 12px; margin-top: 4px; color: var(--dim); min-height: 1em; }
+  .keyrow .kmsg.ok { color: var(--accent-text); } .keyrow .kmsg.err { color: var(--rec-text); }
+  .pill:disabled { opacity: .4; cursor: default; }
+  .linkbtn { background: none; border: none; color: var(--accent-text); font-size: 12px; font-weight: 700; padding: 0; cursor: pointer; }
+  .warn { color: var(--warn); font-size: 12px; margin-top: 6px; line-height: 1.6; }
+  .onb-step { display: none; } .onb-step.on { display: block; }
+  .onb-intro { font-size: 13px; line-height: 1.7; margin: 4px 0 14px; }
+  .onb-intro b { color: var(--accent-text); margin-right: 6px; }
+  .choice { display: grid; gap: 10px; }
+  .choice-btn { text-align: left; background: var(--panel-hi); border: 1.5px solid var(--line); border-radius: 14px; padding: 12px 14px; color: var(--fg); cursor: pointer; }
+  .choice-btn:hover { border-color: var(--accent); background: var(--accent-bg); }
+  .choice-btn b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .choice-btn span { color: var(--dim); font-size: 12px; }
+  .sd-ai { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.6; }
+  .provdetail { font-size: 12px; color: var(--dim); line-height: 1.7; margin: 4px 0 6px; }
+  .provdetail .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+  .provdetail .row span { color: var(--fg); min-width: 7em; }
+  .provdetail input[type=number] { width: 7em; }
+  .provdetail input[list] { flex: 1; min-width: 12em; }
+  .dlg input[type=number], .dlg input[list] { background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px 8px; font: inherit; }
+</style>
+</head>
+<body>
+<aside>
+  <div class="sidetop"><span class="brand">Meeting Cue<i>!</i></span><button class="iconbtn" id="setbtn" title="設定"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class="iconbtn" id="sidebtn" title="一覧を隠す"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button></div>
+  <div id="reccard" title="録音中の画面へ">
+    <div class="top"><span class="tally">REC</span><span id="rc-title">無題</span><span id="rc-time">00:00</span></div>
+    <div class="row sys" title="スピーカー(相手)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg><canvas id="wv-system" width="400" height="48"></canvas></div>
+    <div class="row mic" title="マイク(自分)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg><canvas id="wv-mic" width="400" height="48"></canvas></div>
+  </div>
+  <div id="list"></div>
+  <div id="nagi" aria-live="polite"><span class="spark" style="left:24px;bottom:150px">&#10022;</span><span class="spark" style="left:232px;bottom:172px;font-size:10px">&#10022;</span><div class="bubble"><span id="nagi-say">準備できています。</span><svg class="tail" viewBox="0 0 18 13" aria-hidden="true"><path class="f" d="M3 0 L16 0 L1.5 12 Z"/><path class="s" d="M3.5 0.75 L1.5 12 L15.5 0.75"/></svg></div><img id="nagi-img" src="/nagi/idle.png" alt="ナギ"></div>
+</aside>
+<main>
+  <div class="topbar">
+    <button class="iconbtn" id="sidebtn2" title="一覧を表示" style="display:none"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+    <span class="sp"></span>
+    <div class="seg" id="pl-ch"><button data-v="both" class="sel">両方</button><button data-v="system">スピーカー</button><button data-v="mic">マイク</button></div>
+    <span class="sp"></span>
+    <button class="pill" id="topbtn" title="全画面の会議アプリの上にも出す"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v6"/><path d="M8 3h8l-1.5 5.5L18 12v1H6v-1l3.5-3.5z"/></svg>常に手前</button>
+    <div id="recgroup" class="split">
+      <button class="pill" id="recbtn"><span class="dot"></span><span id="reclabel">録音を開始</span></button>
+      <button class="pill" id="recmore" title="すぐに録音を始める(題名と立場を選ばない)" aria-haspopup="menu"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div id="recmenu" role="menu">
+        <button data-privacy="private"><b>クイック録音を開始</b><span class="s">会議に参加 ・ 題名なし(あとで変えられます)</span></button>
+        <button data-privacy="local"><b>クイック録音を開始(仕事の会議・LOCAL)</b><span class="s">クラウドへ送らない</span></button>
+      </div>
+    </div>
+  </div>
+  <div class="head">
+    <div class="titlerow">
+      <span id="title">無題</span>
+      <span class="sp"></span>
+      <span id="b-local" class="badge local" style="display:none">LOCAL</span>
+      <span id="b-paused" class="badge paused" style="display:none">一時停止中</span>
+      <span id="b-rec" class="badge rec" style="display:none">録音中</span>
+      <div id="ops"><button class="pill" id="opsbtn">&#9776; 操作 &#9662;</button>
+        <div id="opsmenu">
+          <button data-a="toggle_pause">一時停止 / 再開<span class="k">⌃⌥P</span></button>
+          <button data-a="deepdive">今のを深掘り<span class="k">⌃⌥D</span></button>
+          <button data-a="mode">モード切替<span class="k">⌃⌥M</span></button>
+        </div>
+      </div>
+    </div>
+    <div id="meta"></div>
+    <div id="player">
+      <div class="prow" id="pl-row"><button class="playbtn" id="pl-btn" title="再生 / 一時停止(空白キー)">&#9654;</button>
+        <canvas id="pl-wave"></canvas><span id="pl-time">00:00 / 00:00</span></div>
+      <div id="pl-none" style="display:none">この記録には音声がありません(音声の保存を始める前の記録です)。</div>
+      <audio id="au-system" preload="auto"></audio><audio id="au-mic" preload="auto"></audio>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab sel" data-tab="transcript">文字起こし</button>
+    <button class="tab" data-tab="questions">質問<span class="n" id="n-questions">0</span></button>
+    <button class="tab" data-tab="answers">回答<span class="n" id="n-answers">0</span></button>
+    <button class="tab" data-tab="summary" id="tab-summary" style="display:none">サマリ</button>
+  </div>
+  <section class="pane sel" id="p-transcript"><div id="utts"></div><div id="partial"></div></section>
+  <section class="pane" id="p-questions">
+    <div class="qbar">
+      <button class="pill" id="q-now" title="Sonnet が今の会話から考える">今の話で質問を考える</button>
+      <button class="pill" id="q-deep" title="Opus が会話全体から深く考える">深く考える(Opus)</button>
+      <label class="check"><input type="checkbox" id="q-auto" checked> 自動で考える(最大 1 分に 1 回)</label>
+      <span class="qstatus" id="q-status"></span>
+    </div>
+    <div id="plans"><div class="empty" id="plans-empty">会話が進むと、ここに「今こちらから聞くとよい質問」が出ます。相手から質問されたときは回答タブが優先です。</div></div>
+  </section>
+  <section class="pane" id="p-answers"><div id="cards"></div></section>
+  <section class="pane" id="p-summary"><div id="summary"></div></section>
+</main>
+<div id="startdlg"><div class="box">
+  <h2>録音を開始</h2>
+  <label>題名(あとで変えられます)</label><input type="text" id="sd-title" placeholder="無題">
+  <label>自分の立場</label>
+  <div class="seg" id="sd-mode"><button data-v="participant" class="sel">会議に参加</button><button data-v="presenter">登壇・発表</button><button data-v="audience">講演を聴く</button></div>
+  <label class="check"><input type="checkbox" id="sd-local"> 仕事の会議(LOCAL: クラウドへ送らない)</label>
+  <div class="sd-ai" id="sd-ai"></div>
+  <div class="dlgbtns"><button class="pill" id="sd-cancel">やめる</button><button class="pill on" id="sd-ok">開始</button></div>
+</div></div>
+<div id="setdlg" class="dlg"><div class="box wide">
+  <h2>設定</h2>
+  <div class="setsec">AI(回答候補・質問・サマリ)</div>
+  <label class="check"><input type="checkbox" id="set-generate"> 回答候補・質問タブ・サマリを AI で作る</label>
+  <label class="check"><input type="checkbox" id="set-jev"> 相手の質問を判定する(Jev)</label>
+  <div class="setnote" id="set-mode-note"></div>
+  <div class="setrow2"><span>生成 AI の接続先</span><select id="set-provider"></select></div>
+  <div class="provdetail" id="set-prov-detail"></div>
+  <div id="set-keys"></div>
+  <div class="setnote" id="set-keynote">API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先はこの Mac のキーチェーンで、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。</div>
+  <div class="warn" id="set-warn"></div>
+  <div class="setsec">Google Drive</div>
+  <div class="setnote" id="set-drive-status"></div>
+  <label class="check"><input type="checkbox" id="set-drive"> 記録を Google Drive へ移せるようにする(一覧の右クリック)</label>
+  <div class="setrow2" id="set-drive-acct-row"><span>既定のアカウント</span><select id="set-drive-acct"></select></div>
+  <div class="setsec">置き換え辞書(文字起こし)</div>
+  <div class="setnote">音声認識がよく間違える固有名詞を、正しい語に置き換えます。1 行に「正しい語|誤り|誤り…」。空白の有無と英字の大文字・小文字は区別しません。1 文字だけの誤りは使いません。保存すると次の発言から効きます(録音・ライブ字幕・回答候補・サマリ)。</div>
+  <textarea id="set-repl" spellcheck="false" rows="8" placeholder="Palo Alto Networks|パラワートネットワークス|パロアルト"></textarea>
+  <div class="setrow2"><span class="setnote" id="set-repl-status"></span><button class="pill" id="set-repl-save">保存</button></div>
+  <div class="setsec">表示</div>
+  <div class="setrow"><span>基本色</span><input type="color" data-k="accent"><code data-k="accent"></code></div>
+  <div class="setrow"><span>相手の発言</span><input type="color" data-k="other"><code data-k="other"></code></div>
+  <div class="setrow"><span>自分の発言</span><input type="color" data-k="self"><code data-k="self"></code></div>
+  <div class="setrow2"><span>外観</span><div class="seg" id="set-theme" style="width:320px"><button data-v="auto">システムに合わせる</button><button data-v="light">ライト</button><button data-v="dark">ダーク</button></div></div>
+  <label class="check"><input type="checkbox" id="set-nagi" checked> ナギの台詞で案内する(オフで通常の文言)</label>
+  <div class="setnote">変えるとすぐに反映され、開いている他の画面にも届きます。★ と LOCAL の黄色は目印のため変わりません。</div>
+  <div class="dlgbtns"><button class="pill" id="set-onb">はじめの案内</button><span class="sp"></span><button class="pill" id="set-reset">色と表示を初期値に</button><button class="pill on" id="set-close">閉じる</button></div>
+</div></div>
+<div id="onbdlg" class="dlg"><div class="box wide">
+  <div class="onb-step" data-step="1">
+    <h2>Meeting Cue! へようこそ</h2>
+    <div class="onb-intro" id="onb-intro1"></div>
+    <div class="choice">
+      <button class="choice-btn" data-choice="ai"><b>AI で支援する</b><span>相手の質問を判定し、回答候補と逆質問をその場で出します(API キーが要ります)</span></button>
+      <button class="choice-btn" data-choice="rec"><b>録音と文字起こしだけ</b><span>文字起こしと録音は Mac の中だけで行い、外へは何も送りません(キーは要りません)</span></button>
+    </div>
+    <div class="dlgbtns"><button class="pill" id="onb-later">あとで</button></div>
+  </div>
+  <div class="onb-step" data-step="2">
+    <h2>AI の接続</h2>
+    <div class="onb-intro" id="onb-intro2"></div>
+    <div class="setrow2"><span>生成 AI の接続先</span><select id="onb-provider"></select></div>
+    <div class="provdetail" id="onb-prov-detail"></div>
+    <div id="onb-keys"></div>
+    <label class="check"><input type="checkbox" id="onb-jev" checked> 相手の質問を判定する(Jev・OpenRouter のキーを使います。オフなら質問の検出もしません)</label>
+    <div class="warn" id="onb-warn"></div>
+    <div class="dlgbtns"><button class="pill" data-go="1">戻る</button><button class="pill on" data-go="3">次へ</button></div>
+  </div>
+  <div class="onb-step" data-step="3">
+    <h2>Google Drive</h2>
+    <div class="onb-intro" id="onb-intro3"></div>
+    <div class="setnote" id="onb-drive-status"></div>
+    <label class="check"><input type="checkbox" id="onb-drive" checked> 記録を Google Drive へ移せるようにする(一覧の右クリック)</label>
+    <div class="dlgbtns"><button class="pill" data-go="back">戻る</button><button class="pill on" data-go="4">次へ</button></div>
+  </div>
+  <div class="onb-step" data-step="4">
+    <h2>準備ができました</h2>
+    <div class="onb-intro" id="onb-intro4"></div>
+    <div class="setnote" id="onb-summary"></div>
+    <div class="dlgbtns"><button class="pill" data-go="back">戻る</button><button class="pill on" id="onb-done">始める</button></div>
+  </div>
+</div></div>
+<datalist id="openai-models"></datalist>
+<div id="ctxmenu" role="menu"></div>
+<div id="askdlg" class="dlg"><div class="box">
+  <h2 id="ask-title"></h2>
+  <div class="setnote" id="ask-body"></div>
+  <div id="ask-extra"></div>
+  <div class="dlgbtns"><button class="pill" id="ask-no">やめる</button><button class="pill on" id="ask-yes"></button></div>
+</div></div>
+<div id="toasts"></div>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const MODE_JA = {participant: '会議に参加', presenter: '登壇・発表', audience: '講演を聴く'};
+  let st = {};                 // サーバの状態(state イベント)
+  let view = {kind: 'empty', id: null};   // live | review | empty
+  let sessions = [];
+  const utts = new Map(), cards = new Map();
+  const levels = {mic: [], system: []};
+  let answersUnread = 0;
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const mmss = (s) => { s = Math.max(0, Math.round(s)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+  const pad = (n) => String(n).padStart(2, '0');
+  const jdate = (ms) => { const d = new Date(ms); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}:${pad(d.getMinutes())}`; };
+  const isToday = (ms) => new Date(ms).toDateString() === new Date().toDateString();
+  const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const action = (a, extra = {}) => post('/api/action', {action: a, ...extra});
+
+  function toast(text, err = false, nagi = false) {
+    const el = document.createElement('div'); el.className = 'toast' + (err ? ' err' : '');
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.title = '閉じる';
+    x.onclick = () => el.remove();                       // 左上の × ですぐ消せる
+    const body = document.createElement('span'); body.textContent = text;
+    if (nagi) { const who = document.createElement('b'); who.className = 'who'; who.textContent = 'ナギ'; body.prepend(who); }
+    el.append(x, body);
+    $('#toasts').appendChild(el); setTimeout(() => el.remove(), err ? 30000 : 6000);
+  }
+
+  // ---- 色の設定(基本色・相手・自分)。サーバの ~/.meeting-cue/ui.json に保存し、全画面へ配る ----
+  const DEFAULT_COLORS = {accent: '#3ed6c8', other: '#62b6ff', self: '#8f8cff'};   // ナギの色(ミント・空色・藤紺)
+  const colors = {accent: DEFAULT_COLORS.accent, other: DEFAULT_COLORS.other, self: DEFAULT_COLORS.self};   // canvas 用に解決した値
+  // 基本色で塗った上の文字: 明るい基本色なら濃い紺、暗い基本色なら白(⚙ でどの色にしても読めるように)
+  const inkOn = (hex) => { const n = parseInt(String(hex).replace('#', ''), 16) || 0;
+    return (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255 > 0.55 ? '#0b1322' : '#ffffff'; };
+  function applyColors(c) {
+    const root = document.documentElement.style;
+    for (const k of Object.keys(DEFAULT_COLORS)) if (/^#[0-9a-f]{6}$/i.test(c?.[k] || '')) root.setProperty('--' + k, c[k]);
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of Object.keys(DEFAULT_COLORS)) colors[k] = cs.getPropertyValue('--' + k).trim() || DEFAULT_COLORS[k];
+    root.setProperty('--accent-ink', inkOn(colors.accent));
+    readCanvasColors();
+    document.querySelectorAll('#setdlg input[type=color]').forEach(i => { const v = c?.[i.dataset.k]; if (v) i.value = v; });
+    document.querySelectorAll('#setdlg code').forEach(e => { e.textContent = (c?.[e.dataset.k] || '').toLowerCase(); });
+    if (view.kind === 'review') drawPlayer();
+  }
+  function readCanvasColors() {   // 波形の未再生の棒・再生位置の線(明るい地 / ダークで変わる)
+    const cs = getComputedStyle(document.documentElement);
+    colors.waveDim = cs.getPropertyValue('--wave-dim').trim() || 'rgba(27,59,90,0.20)';
+    colors.playhead = cs.getPropertyValue('--playhead').trim() || 'rgba(27,36,64,0.85)';
+    if (view.kind === 'review') drawPlayer();
+  }
+  // 外観(2026-09-27): auto = macOS に合わせる。アプリのウィンドウでは、ほかの画面(メニュー・字幕・アップデート)も同じ外観にする
+  function applyTheme(t) {
+    t = ['light', 'dark'].includes(t) ? t : 'auto';
+    if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+    document.querySelectorAll('#set-theme button').forEach(b => b.classList.toggle('sel', b.dataset.v === t));
+    window.webkit?.messageHandlers?.meetcue?.postMessage({cmd: 'theme', value: t});
+    readCanvasColors();
+  }
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readCanvasColors);
+  let saveTimer = 0;
+  function saveColors(c) { clearTimeout(saveTimer); saveTimer = setTimeout(() => post('/api/settings', {colors: c}), 250); }
+  function currentColors() { const c = {}; document.querySelectorAll('#setdlg input[type=color]').forEach(i => { c[i.dataset.k] = i.value; }); return c; }
+  fetch('/api/settings').then(r => r.ok ? r.json() : null)
+    .then(s => { if (!s) { applyColors(DEFAULT_COLORS); return; } applySettings(s); if (s.need_onboarding) openOnboarding(); })
+    .catch(() => applyColors(DEFAULT_COLORS));
+  $('#setbtn').onclick = () => { $('#setdlg').classList.add('open'); loadRepl(); };
+  // 置き換え辞書(2026-09-27): ~/.meeting-cue/replacements.txt を開くたびに読み、保存で書く
+  function replStatus(v, saved) {
+    const ig = (v.ignored || []).length ? ` · 使えない行 ${v.ignored.length}(${v.ignored.slice(0, 3).join(' / ')})` : '';
+    $('#set-repl-status').textContent = (saved ? '保存しました · ' : '') + `${v.rules} 語・誤り ${v.wrongs} 通り` + ig;
+  }
+  async function loadRepl() {
+    try { const v = await (await fetch('/api/replacements')).json(); $('#set-repl').value = v.text || ''; replStatus(v, false); } catch (e) {}
+  }
+  $('#set-repl-save').onclick = async () => {
+    const r = await post('/api/replacements', {text: $('#set-repl').value});
+    if (r.ok) replStatus(await r.json(), true); else $('#set-repl-status').textContent = '保存できませんでした';
+  };
+  $('#set-close').onclick = () => $('#setdlg').classList.remove('open');
+  $('#setdlg').onclick = (e) => { if (e.target.id === 'setdlg') $('#setdlg').classList.remove('open'); };
+  document.querySelectorAll('#setdlg input[type=color]').forEach(i => i.oninput = () => { const c = currentColors(); applyColors(c); saveColors(c); });
+  $('#set-reset').onclick = () => { applyColors(DEFAULT_COLORS); saveColors({...DEFAULT_COLORS}); applyNagi(true); applyTheme('auto'); post('/api/settings', {nagi: true, theme: 'auto'}); };   // AI・Drive の設定は変えない
+  document.querySelectorAll('#set-theme button').forEach(b => b.onclick = () => { applyTheme(b.dataset.v); saveSetting({theme: b.dataset.v}); });
+  $('#set-nagi').onchange = (e) => { applyNagi(e.target.checked); post('/api/settings', {nagi: e.target.checked}); };
+
+  // ---- ナギの台詞(2026-09-26 keigoly様)。オンのとき案内の文言をナギ(アイコンのキャラクター)の言葉にする。
+  //      操作に要る情報(ボタンの場所など)は落とさない。
+  //      LOCAL の「Mac の外に出さない」は LOCAL のときだけ(通常は文字起こしの文をクラウドへ送るため)。
+  let nagiOn = true;
+  const NAGI = {
+    idle: '準備できています。始めるときは右上の「録音を開始」をどうぞ。これまでの記録は左の一覧から開けます。',
+    start: {participant: '聞いています。', presenter: '質疑は任せてください。私は袖にいます。', audience: '聞きどころを拾っておきます。'},
+    local: 'この会議の内容は、この Mac の外に出しません。',
+    asked: 'あなたへの質問です。候補を出します。',
+    askedNoLlm: 'あなたへの質問です。今は生成を止めているので、候補は出しません。',   // LOCAL・鍵なし・--no-llm
+    ranked: '★ から。結論を先にどうぞ。',
+    plansEmpty: '会話が進んだら、今こちらから聞くとよいことをここに置いておきます。相手から質問されたら、そちらが先です。',
+    planWait: '相手の質問が先です。答え終わったら、また考えます。',
+    planDone: '今なら、この確認が効きます。',
+    saved: 'お疲れさまでした。録音を保存しました。',
+    savedSummary: 'お疲れさまでした。録音とまとめを保存しました。',
+    exportPick: '書き出す場所を選んでください。',
+    exported: '書き出しました。Finder で開いておきます。',
+    driveMoved: 'Google Drive へ移しました。アップロードは Google Drive のアプリに任せます。',
+    trashed: 'ゴミ箱へ移しました。戻したいときはゴミ箱からどうぞ。',
+    code: {   // サーバの status / error の code → ナギの台詞(code が無いもの・知らないものは元の文言のまま)
+      silence: '相手の声が届いていません。会議の音声がこの Mac から出ているか(別の機器で再生していないか)確かめてください。',
+      silence_end: '相手の声が戻りました。',
+      stopping: '止めています。少しお待ちください。',
+      summary: 'まとめを作っています…',
+    },
+  };
+  const PLANS_EMPTY = '会話が進むと、ここに「今こちらから聞くとよい質問」が出ます。相手から質問されたときは回答タブが優先です。';
+  function applyNagi(on) {
+    nagiOn = on !== false;
+    document.body.classList.toggle('nonagi', !nagiOn);
+    $('#set-nagi').checked = nagiOn;
+    const pe = $('#plans-empty'); if (pe) pe.textContent = nagiOn ? NAGI.plansEmpty : PLANS_EMPTY;
+    renderHead();
+  }
+  let nagiHold = 0;
+  const firstSentence = (t) => (String(t).match(/^.*?。/) || [String(t)])[0];
+  function nagiSay(text, mood = 'idle', holdMs = 0) {
+    if (holdMs) nagiHold = Date.now() + holdMs; else if (Date.now() < nagiHold) return;   // 出来事の一言はしばらく残す
+    $('#nagi-say').textContent = firstSentence(text);
+    const img = $('#nagi-img'), src = `/nagi/${mood}.png`;
+    if (!img.src.endsWith(src)) img.src = src;
+  }
+  function nagiBase() {
+    if (st.recording) nagiSay(st.paused ? '一時停止しています。' : (NAGI.start[st.mode] || NAGI.start.participant), 'listen');
+    else if (st.saving) nagiSay(NAGI.code.stopping, 'think');
+    else if (view.kind === 'review') nagiSay('発言を押すと再生します。', 'idle');   // 吹き出しは 1 行(2026-09-27 keigoly様)
+    else nagiSay('どうぞ、あなたの番です。', 'idle');
+  }
+  setInterval(() => { if (nagiHold && Date.now() > nagiHold) { nagiHold = 0; nagiBase(); } }, 1000);
+  function nagiLine(c, text) { c.el.querySelector('.nagi').innerHTML = `<b>ナギ</b>${esc(text)}`; }
+
+  // ---- 設定画面(FR-10b・2026-09-26): AI の接続先とキー・生成 / Jev / Google Drive のオン・オフ。キーの中身は画面に来ない ----
+  let appSettings = {keys: {}, drive_accounts: [], providers_ready: ['openrouter']};
+  const PROV = [['openrouter', 'OpenRouter'], ['anthropic', 'Anthropic'], ['openai', 'OpenAI']];
+  const provName = (p) => p === 'claude-cli' ? 'Claude サブスク' : (PROV.find(x => x[0] === p) || [p, p])[1];
+  const keySet = (p) => !!appSettings.keys?.[p]?.set;
+  function keyStatText(p) {
+    const k = appSettings.keys?.[p] || {};
+    return !k.set ? '未設定' : k.source === 'keychain' ? '設定済み(キーチェーン)' : '設定済み(~/.secrets のファイルか環境変数)';
+  }
+  function provOptions(sel) {
+    const cur = appSettings.provider || 'openrouter';
+    sel.innerHTML = PROV.map(([v, n]) => {
+      const ready = (appSettings.providers_ready || []).includes(v);
+      return `<option value="${v}" ${v === cur ? 'selected' : ''} ${ready ? '' : 'disabled'}>${n}${ready ? (v === 'openrouter' ? '(Jev と共通)' : '(直接)') : '(準備中)'}</option>`;
+    }).join('') + ((appSettings.providers_ready || []).includes('claude-cli')   // 開発者向け(config.toml の subscription_cli)
+      ? `<option value="claude-cli" ${cur === 'claude-cli' ? 'selected' : ''}>Claude サブスク(Claude Code 経由・開発者向け)</option>` : '');
+  }
+  function keyRows(box, only = null) {   // 接続先ごとに: 状態・貼り付け・保存・確認・削除・キーを取得
+    box.innerHTML = '';
+    for (const [p, n] of PROV) {
+      if (only && !only.includes(p)) continue;
+      const row = document.createElement('div'); row.className = 'keyrow'; row.dataset.p = p;
+      row.innerHTML = `<div class="kname"><span>${n}${p === 'openrouter' ? '<span class="kstat">(Jev もこのキー)</span>' : ''}</span><span class="kstat ${keySet(p) ? 'on' : ''}">${keyStatText(p)}</span></div>
+        <div class="kctl"><input type="password" placeholder="API キーを貼り付け" autocomplete="off" spellcheck="false">
+        <button class="pill" data-k="save">保存</button><button class="pill" data-k="check" ${keySet(p) ? '' : 'disabled'}>確認</button>
+        ${appSettings.keys?.[p]?.source === 'keychain' ? '<button class="pill" data-k="delete">削除</button>' : ''}
+        <button class="linkbtn" data-k="get">キーを取得</button></div><div class="kmsg"></div>`;
+      const msg = (t, cls = '') => { const m = row.querySelector('.kmsg'); m.textContent = t; m.className = 'kmsg ' + cls; };
+      row.querySelector('[data-k=save]').onclick = async () => {
+        const inp = row.querySelector('input'); const key = inp.value.trim(); if (!key) { msg('キーを貼り付けてください', 'err'); return; }
+        const r = await post('/api/keys/save', {provider: p, key}); const j = await r.json().catch(() => ({}));
+        inp.value = '';   // 画面にキーを残さない
+        if (!r.ok) { msg(j.error || '保存できませんでした', 'err'); return; }
+        applySettings(j); msg('保存しました。確認しています…');
+        const c = await (await post('/api/keys/check', {provider: p})).json().catch(() => ({ok: false, message: '確認できませんでした'}));
+        box.querySelector(`.keyrow[data-p=${p}] .kmsg`).textContent = c.message; box.querySelector(`.keyrow[data-p=${p}] .kmsg`).className = 'kmsg ' + (c.ok ? 'ok' : 'err');
+      };
+      row.querySelector('[data-k=check]').onclick = async () => {
+        msg('確認しています…');
+        const c = await (await post('/api/keys/check', {provider: p})).json().catch(() => ({ok: false, message: '確認できませんでした'}));
+        msg(c.message, c.ok ? 'ok' : 'err');
+      };
+      const del = row.querySelector('[data-k=delete]');
+      if (del) del.onclick = async () => {
+        const ok = await ask({title: 'キーを削除', yes: '削除', danger: true, body: `${n} のキーをキーチェーンから削除します(~/.secrets のファイルは変えません)。`});
+        if (!ok) return;
+        const r = await post('/api/keys/delete', {provider: p}); if (r.ok) applySettings(await r.json());
+      };
+      row.querySelector('[data-k=get]').onclick = () => post('/api/open', {page: p});
+      box.appendChild(row);
+    }
+  }
+  function modeNote() {
+    const g = appSettings.generate, j = appSettings.jev;
+    if (!g && !j) return '今は「録音だけ」です。文字起こしと録音は Mac の中だけで行い、外へは何も送りません。';
+    if (!j) return '質問の判定はオフです(回答タブは動きません)。質問タブとサマリは AI で作ります。';
+    if (!g) return 'AI の生成はオフです。質問を判定してナレッジだけ出します。';
+    return `質問を判定して、${provName(appSettings.provider)} で回答候補・質問・サマリを作ります。`;
+  }
+  function aiWarn() {
+    const w = [], p = appSettings.provider || 'openrouter';
+    if (appSettings.generate && p === 'claude-cli') {
+      if (!appSettings.subscription_cli?.found) w.push('Claude Code(claude)が見つからないため、回答候補・質問タブ・サマリは作りません。');
+    } else if (appSettings.generate && !keySet(p)) w.push(`${provName(p)} のキーが無いため、回答候補・質問タブ・サマリは作りません。`);
+    else if (appSettings.generate && p === 'openai' && !appSettings.openai_model) w.push('OpenAI のモデルを選んでください(選ぶまで生成しません)。');
+    if (appSettings.generate && p === 'openai' && keySet(p) && !(appSettings.openai_price_in || appSettings.openai_price_out))
+      w.push('OpenAI の価格が未入力のため、月の予算上限では数えられません。');
+    if (appSettings.jev && !keySet('openrouter')) w.push('OpenRouter のキーが無いため、質問の判定は Mac の中の簡易判定になります(精度が下がります)。');
+    return w.join(' ');
+  }
+  // 接続先ごとの中身: OpenRouter / Anthropic はモデルの説明、OpenAI はモデル選び(キーの一覧から)と価格
+  let openaiModels = [];
+  function provDetail(box) {
+    const p = appSettings.provider || 'openrouter', am = appSettings.anthropic_models || {};
+    if (p === 'anthropic') {
+      box.innerHTML = `回答・質問タブ = <b>${esc(am.main)}</b>(思考を切って速く)/ サマリ = <b>${esc(am.fast)}</b> / 深く考える = <b>${esc(am.deep)}</b>。料金は公開価格から計算して月の予算上限に数えます。質問の判定(Jev)をオンにするなら OpenRouter のキーも要ります。`;
+      return;
+    }
+    if (p === 'claude-cli') {
+      box.innerHTML = `<b>開発者向け・自己責任</b>: この Mac でログイン済みの Claude Code を呼び出し、あなたの Claude の月額プランの利用枠で回答を作ります(アプリは認証情報に触れません)。モデルは ${esc(am.main)} / ${esc(am.fast)} / ${esc(am.deep)}。録音中は Claude Code を 2 つ先に起動して待たせるので、初トークンは API と同じくらいです。API の月予算には数えません。Anthropic の規約上、ほかの人に使わせる形では配れません(公開版の既定はオフ)。質問の判定(Jev)は OpenRouter のキーを使います。${appSettings.subscription_cli?.found ? '' : '<br><b>Claude Code(claude)が見つかりません。</b>'}`;
+      return;
+    }
+    if (p === 'openrouter') { box.textContent = '回答・質問タブ = Claude Sonnet 5 / サマリ = Haiku 4.5 / 深く考える = Opus 5.5(OpenRouter 経由・質問の判定 Jev と同じキー)。'; return; }
+    if (box.contains(document.activeElement)) return;   // 入力中は作り直さない
+    box.innerHTML = `<div class="row"><span>モデル</span><input list="openai-models" class="oa-model" placeholder="一覧から選ぶか入力" value="${esc(appSettings.openai_model || '')}"><button class="pill oa-list" ${keySet('openai') ? '' : 'disabled'}>一覧を取得</button></div>
+      <div class="row"><span>価格(1M トークン)</span>入力 $<input type="number" class="oa-in" min="0" step="0.01" value="${appSettings.openai_price_in || ''}">出力 $<input type="number" class="oa-out" min="0" step="0.01" value="${appSettings.openai_price_out || ''}"></div>
+      <div class="oa-msg"></div>回答・サマリ・深く考えるは同じモデルです(深く考えるでは reasoning_effort を付けます)。価格は OpenAI のサイトで確かめて入れてください(月の予算上限の計算に使います)。質問の判定(Jev)をオンにするなら OpenRouter のキーも要ります。`;
+    box.querySelector('.oa-model').onchange = (e) => saveSetting({openai_model: e.target.value.trim()});
+    box.querySelector('.oa-in').onchange = (e) => saveSetting({openai_price_in: Math.max(0, +e.target.value || 0)});
+    box.querySelector('.oa-out').onchange = (e) => saveSetting({openai_price_out: Math.max(0, +e.target.value || 0)});
+    box.querySelector('.oa-list').onclick = async () => {
+      const m = box.querySelector('.oa-msg'); m.textContent = '一覧を取得しています…';
+      const r = await post('/api/models', {provider: 'openai'}); const j = await r.json().catch(() => ({}));
+      if (!r.ok) { m.textContent = j.error || '取得できませんでした(モデル名を手で入力できます)'; return; }
+      openaiModels = j.models || [];
+      $('#openai-models').innerHTML = openaiModels.map(x => `<option value="${esc(x)}">`).join('');
+      m.textContent = `${openaiModels.length} 件のモデルが使えます。欄をクリックして選んでください。`;
+    };
+  }
+  function driveStatus() {
+    const a = appSettings.drive_accounts || [];
+    return a.length ? `Google Drive for desktop が見つかりました(${a.join(' / ')})。` : 'Google Drive for desktop が見つかりません。入れてログインすると使えます。';
+  }
+  function renderSettings() {
+    $('#set-generate').checked = !!appSettings.generate; $('#set-jev').checked = !!appSettings.jev;
+    $('#set-mode-note').textContent = modeNote(); $('#set-warn').textContent = aiWarn();
+    provOptions($('#set-provider')); provDetail($('#set-prov-detail'));
+    if (!$('#set-keys').contains(document.activeElement)) keyRows($('#set-keys'));   // 入力中は作り直さない
+    $('#set-drive-status').textContent = driveStatus();
+    $('#set-drive').checked = !!appSettings.drive; $('#set-drive').disabled = !(appSettings.drive_accounts || []).length;
+    const accts = appSettings.drive_accounts || [];
+    $('#set-drive-acct-row').style.display = accts.length > 1 ? '' : 'none';
+    $('#set-drive-acct').innerHTML = accts.map(a => `<option ${a === appSettings.drive_account ? 'selected' : ''}>${esc(a)}</option>`).join('');
+    renderStartNote();
+  }
+  function renderStartNote() {
+    const e = $('#sd-ai'); if (!e) return;
+    if ($('#sd-local').checked) { e.textContent = 'LOCAL: 判定・生成・サマリのクラウド呼び出しをしません。'; return; }
+    e.textContent = modeNote() + (aiWarn() ? ' ' + aiWarn() : '') + '(⚙ で変えられます)';
+  }
+  // API キーの説明(2026-09-27): 一般の利用者には「月額プランは使えません」のまま。開発者向けの切り替え
+  // (config.toml の [llm] subscription_cli)がオンの Mac では、選べる「Claude サブスク」と食い違わないよう書き分ける
+  const KEYNOTE_PUBLIC = 'API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先はこの Mac のキーチェーンで、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。';
+  const KEYNOTE_DEV = 'API キーは各社のサイトで発行したものを貼り付けます。この Mac では開発者向けの切り替え(config.toml の [llm] subscription_cli)がオンなので、接続先に「Claude サブスク(Claude Code 経由)」も選べます(ご自分の用途だけ・キーは不要・下の説明を参照)。ほかのアプリに月額プランを使わせることは Anthropic の規約で認められていないため、公開版の利用者には出しません。キーの保存先はこの Mac のキーチェーンで、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。';
+  function applySettings(s) {
+    appSettings = {...appSettings, ...s};
+    if (s.colors) applyColors(s.colors);
+    if ('nagi' in s) applyNagi(s.nagi);
+    if ('theme' in s) applyTheme(s.theme);
+    $('#set-keynote').textContent = appSettings.subscription_cli?.enabled ? KEYNOTE_DEV : KEYNOTE_PUBLIC;
+    renderSettings();
+    if ($('#onbdlg').classList.contains('open')) renderOnboarding();
+  }
+  const saveSetting = (obj) => post('/api/settings', obj).then(r => r.ok ? r.json() : null).then(j => { if (j) applySettings(j); });
+  $('#set-generate').onchange = (e) => saveSetting({generate: e.target.checked});
+  $('#set-jev').onchange = (e) => saveSetting({jev: e.target.checked});
+  $('#set-provider').onchange = (e) => saveSetting({provider: e.target.value});
+  $('#set-drive').onchange = (e) => saveSetting({drive: e.target.checked});
+  $('#set-drive-acct').onchange = (e) => saveSetting({drive_account: e.target.value});
+  $('#set-onb').onclick = () => { $('#setdlg').classList.remove('open'); openOnboarding(); };
+
+  // ---- 初回の案内: 使い方 → AI の接続(キー・Jev)→ Google Drive → 完了。「録音だけ」は 2 を飛ばす ----
+  let onbStep = 1, onbPath = [1];
+  const ONB = {
+    1: ['はじめまして、ナギです。会議の袖に控えて、あなたが話す番のきっかけを小声で渡します。まず、どこまで手伝うかを決めましょう。', '最初に使い方を選んでください。あとから ⚙ で変えられます。'],
+    2: ['回答候補を作る AI の接続先と、その API キーを登録してください。キーはこの Mac のキーチェーンにしまいます。', '生成 AI の接続先と API キーを登録します。キーはこの Mac のキーチェーンに保存します。'],
+    3: ['終わった記録を Google Drive へ移せるようにしておきますか。移しても一覧から開けます。', '記録を Google Drive へ移す機能を使うかを選びます。'],
+    4: ['準備できています。始めるときは右上の「録音を開始」をどうぞ。', '設定が終わりました。右上の「録音を開始」から始められます。'],
+  };
+  function onbText(n) { const [nv, plain] = ONB[n]; return nagiOn ? `<b>ナギ</b>${esc(nv)}` : esc(plain); }
+  function showStep(n) {
+    onbStep = n; if (onbPath[onbPath.length - 1] !== n) onbPath.push(n);
+    document.querySelectorAll('.onb-step').forEach(e => e.classList.toggle('on', +e.dataset.step === n));
+    renderOnboarding();
+  }
+  function renderOnboarding() {
+    for (const n of [1, 2, 3, 4]) $('#onb-intro' + n).innerHTML = onbText(n);
+    provOptions($('#onb-provider')); provDetail($('#onb-prov-detail'));
+    if (!$('#onb-keys').contains(document.activeElement)) keyRows($('#onb-keys'), [appSettings.provider || 'openrouter', 'openrouter']);
+    $('#onb-jev').checked = !!appSettings.jev;
+    $('#onb-warn').textContent = aiWarn();
+    $('#onb-drive-status').textContent = driveStatus();
+    $('#onb-drive').checked = !!appSettings.drive; $('#onb-drive').disabled = !(appSettings.drive_accounts || []).length;
+    $('#onb-summary').textContent = modeNote() + ' Google Drive: ' + (appSettings.drive && (appSettings.drive_accounts || []).length ? '使う' : '使わない') + '。あとから ⚙ で変えられます。';
+  }
+  function openOnboarding() { onbPath = []; $('#onbdlg').classList.add('open'); showStep(1); }
+  document.querySelectorAll('#onbdlg .choice-btn').forEach(b => b.onclick = async () => {
+    if (b.dataset.choice === 'ai') { await saveSetting({generate: true, jev: true}); showStep(2); }
+    else { await saveSetting({generate: false, jev: false}); showStep(3); }   // 録音だけ: キーの画面は飛ばす
+  });
+  document.querySelectorAll('#onbdlg [data-go]').forEach(b => b.onclick = () => {
+    if (b.dataset.go === 'back') { onbPath.pop(); showStep(onbPath.pop() || 1); return; }
+    const n = +b.dataset.go; if (n < onbStep) onbPath.pop();
+    showStep(n);
+  });
+  $('#onb-provider').onchange = (e) => saveSetting({provider: e.target.value});
+  $('#onb-jev').onchange = (e) => saveSetting({jev: e.target.checked});
+  $('#onb-drive').onchange = (e) => saveSetting({drive: e.target.checked});
+  $('#onb-later').onclick = () => $('#onbdlg').classList.remove('open');   // 次に開いたときにもう一度出す
+  $('#onb-done').onclick = async () => { await saveSetting({onboarded: true}); $('#onbdlg').classList.remove('open'); };
+
+  // ---- タブ ----
+  function selectTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('sel', t.dataset.tab === name));
+    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('sel', p.id === 'p-' + name));
+    if (name === 'answers') { answersUnread = 0; badge(); }
+    if (name === 'questions') { questionsUnread = 0; qBadge(); }
+  }
+  function badge() { const n = $('#n-answers'); n.textContent = answersUnread; n.classList.toggle('on', answersUnread > 0); }
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => selectTab(t.dataset.tab));
+
+  // ---- 一覧 ----
+  async function loadList() {
+    try { sessions = (await (await fetch('/api/sessions')).json()).sessions || []; } catch (e) { return; }
+    renderList();
+  }
+  function renderList() {
+    const box = $('#list'); box.innerHTML = '';
+    const rows = sessions.filter(s => !((st.recording || st.saving) && s.id === st.session));   // 保存が終わるまで一覧に出さない
+    let lastGrp = '';
+    rows.forEach(s => {
+      const grp = s.started_ms && isToday(s.started_ms) ? '今日' : 'これより前';
+      if (grp !== lastGrp) { const g = document.createElement('div'); g.className = 'grp'; g.textContent = grp; box.appendChild(g); lastGrp = grp; }
+      const el = document.createElement('div');
+      el.className = 'item' + (view.kind === 'review' && view.id === s.id ? ' sel' : '');
+      const when = s.started_ms ? (grp === '今日' ? new Date(s.started_ms).toTimeString().slice(0, 5).replace(/^0/, '') : jdate(s.started_ms)) : '';
+      el.innerHTML = `<div class="t">${esc(s.title)}${s.where === 'drive' ? '<span class="cloud" title="Google Drive に保存">☁</span>' : ''}</div><div class="m"><span>${mmss(s.duration_s || 0)}` +
+        (s.questions ? ` <span class="q">質問 ${s.questions}</span>` : '') + `</span><span>${esc(when)}</span></div>`;
+      el.onclick = () => openReview(s.id);
+      el.oncontextmenu = (e) => { e.preventDefault(); openCtx(e, s, el); };
+      box.appendChild(el);
+    });
+  }
+
+  // ---- 一覧の右クリック: 録音を書き出す… / Google Drive に移動… / 削除(2026-09-26・中身は REQUIREMENTS FR-9) ----
+  let storage = {drive: []};
+  const loadStorage = () => fetch('/api/storage').then(r => r.ok ? r.json() : null).then(x => { if (x) storage = x; }).catch(() => {});
+  loadStorage();
+  function closeCtx() { $('#ctxmenu').classList.remove('open'); document.querySelectorAll('.item.ctx').forEach(e => e.classList.remove('ctx')); }
+  function openCtx(e, s, el) {
+    closeCtx(); loadStorage();
+    el.classList.add('ctx');
+    const m = $('#ctxmenu'); m.innerHTML = '';
+    const item = (label, fn, why = '') => {
+      const b = document.createElement('button'); b.textContent = label; b.setAttribute('role', 'menuitem');
+      if (why) { b.className = 'off'; b.setAttribute('aria-disabled', 'true'); b.title = why; }   // disabled だと理由の吹き出しが出ない
+      else b.onclick = () => { closeCtx(); fn(); };
+      m.appendChild(b);
+    };
+    item('録音を書き出す…', () => exportSession(s));
+    item('Google Drive に移動…', () => driveSession(s),
+      s.where === 'drive' ? 'Google Drive に保存済みです' :
+      s.privacy === 'local' ? 'LOCAL(仕事の会議)の記録は Mac の外に出せません' :
+      !storage.drive?.length ? 'Google Drive for desktop が見つかりません' :
+      appSettings.drive === false ? '設定で Google Drive を使わない設定になっています(⚙)' : '');
+    m.appendChild(document.createElement('hr'));
+    item('削除', () => trashSession(s));
+    m.classList.add('open');
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + 'px';
+    m.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + 'px';
+  }
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('#ctxmenu')) closeCtx(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCtx(); });
+  window.addEventListener('blur', closeCtx);
+  $('#list').addEventListener('scroll', closeCtx);
+
+  function ask({title, body, yes, danger = false, extra = null}) {   // 確認の小窓(やめる / yes)。extra は小窓に足す要素
+    return new Promise(res => {
+      $('#ask-title').textContent = title; $('#ask-body').textContent = body;
+      const x = $('#ask-extra'); x.innerHTML = ''; if (extra) x.appendChild(extra);
+      const y = $('#ask-yes'); y.textContent = yes; y.className = 'pill ' + (danger ? 'danger' : 'on');
+      const done = (v) => { $('#askdlg').classList.remove('open'); y.onclick = $('#ask-no').onclick = null; res(v); };
+      y.onclick = () => done(true); $('#ask-no').onclick = () => done(false);
+      $('#askdlg').onclick = (e) => { if (e.target.id === 'askdlg') done(false); };
+      $('#askdlg').classList.add('open'); y.focus();
+    });
+  }
+  async function sessionOp(s, op, body = {}) {
+    const r = await post(`/api/sessions/${encodeURIComponent(s.id)}/${op}`, body);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast((j.error || `失敗しました(${r.status})`), true); return null; }
+    return j;
+  }
+  async function exportSession(s) {
+    if (nagiOn) toast(NAGI.exportPick, false, true);
+    const j = await sessionOp(s, 'export'); if (!j || j.cancelled) return;
+    toast(nagiOn ? NAGI.exported : `書き出しました: ${j.path}`, false, nagiOn);
+  }
+  async function driveSession(s) {
+    let sel = null;
+    if (storage.drive.length > 1) {   // アカウントが複数あれば選ぶ
+      sel = document.createElement('select');
+      storage.drive.forEach((a, i) => { const o = document.createElement('option'); o.value = i; o.textContent = a.label; o.selected = a.label === appSettings.drive_account; sel.appendChild(o); });
+    }
+    const where = storage.drive.length === 1 ? `(${storage.drive[0].label})` : '';
+    const ok = await ask({title: 'Google Drive に移動', yes: '移動',
+      body: `「${s.title}」を Google Drive${where} のマイドライブ/Meeting Cue! へ移します。Mac からは消え、Google Drive のアプリがアップロードします。一覧には雲の印付きで残り、再生や文字起こしはそのまま使えます。`,
+      extra: sel});
+    if (!ok) return;
+    const j = await sessionOp(s, 'drive', {account: sel ? +sel.value : 0}); if (!j) return;
+    toast(nagiOn ? NAGI.driveMoved : 'Google Drive へ移しました', false, nagiOn);
+  }
+  async function trashSession(s) {
+    const ok = await ask({title: '記録を削除', yes: '削除', danger: true,
+      body: `「${s.title}」(${s.started_ms ? jdate(s.started_ms) : ''}・${mmss(s.duration_s || 0)})をゴミ箱へ移します。ゴミ箱から元に戻せます。`});
+    if (!ok) return;
+    const j = await sessionOp(s, 'trash'); if (!j) return;
+    toast(nagiOn ? NAGI.trashed : 'ゴミ箱へ移しました', false, nagiOn);
+  }
+  function sessionsChanged(ev) {   // どの画面で操作しても、全画面の一覧と開いている記録を合わせる
+    if (view.kind === 'review' && view.id === ev.id) {
+      if (ev.op === 'trash') { stopPlayer(); view = {kind: 'empty', id: null}; clearBody(); renderHead(); }
+      else if (ev.op === 'drive') { openReview(ev.id); }
+    }
+    loadList();
+  }
+
+  // ---- 見出し ----
+  function renderHead() {
+    const live = view.kind === 'live';
+    const rv = view.kind === 'review' ? view.data : null;
+    const title = live ? (st.title || '無題') : rv ? rv.title : '無題';
+    if ($('#title').getAttribute('contenteditable') !== 'true') $('#title').textContent = title;
+    $('#title').classList.toggle('editable', live || !!rv);
+    $('#title').title = live || rv ? 'クリックで題名を変更(Enter で確定・Esc でやめる)' : '';
+    $('#b-rec').style.display = live && st.recording ? '' : 'none';
+    $('#b-paused').style.display = live && st.paused ? '' : 'none';
+    $('#b-local').style.display = (live ? st.privacy : rv?.privacy) === 'local' ? '' : 'none';
+    $('#ops').style.display = live && st.recording ? '' : 'none';
+    $('#tab-summary').style.display = rv ? '' : 'none';
+    $('#player').style.display = rv ? 'block' : 'none';   // CSS の既定が none なので '' では出ない
+    document.body.classList.toggle('reviewing', !!rv);
+    document.body.classList.toggle('idle', !live && !rv && !st.recording && !st.saving);
+    $('#pl-ch').style.display = rv && Object.keys(player.chs).length > 1 ? 'flex' : 'none';
+    const chip = (t, cls = '') => t ? `<span class="chip ${cls}">${esc(t)}</span>` : '';
+    if (live) $('#meta').innerHTML = chip(jdate(st.started_ms)) + chip(st.recording ? '録音中' : '保存しています…', 'live') + chip('この Mac') + chip(MODE_JA[st.mode] || st.mode);
+    else if (rv) $('#meta').innerHTML = chip(jdate(rv.started_ms)) + chip('録音済み') + chip('この Mac') + chip(MODE_JA[rv.mode] || rv.mode || '') + chip(mmss(rv.duration_s || 0));
+    else $('#meta').innerHTML = `<div class="cue">${nagiOn ? '<b>ナギ</b>' + esc(NAGI.idle) : esc('左の一覧から記録を選ぶか、右上の「録音を開始」を押してください。')}</div>`;
+    const rb = $('#recbtn'); rb.classList.toggle('stop', !!st.recording);
+    rb.disabled = !st.recording && !!st.saving;   // 停止後、回答とサマリを仕上げている間は次の録音を始めない
+    const idle = !st.recording && !st.saving;      // ▾(クイック録音)は録音していないときだけ
+    $('#recgroup').classList.toggle('split', idle);
+    if (!idle) $('#recmenu').classList.remove('open');
+    $('#reclabel').textContent = st.recording ? '録音を停止' : st.saving ? '保存しています…' : '録音を開始';
+    $('#reccard').classList.toggle('on', !!st.recording);
+    $('#rc-title').textContent = st.title || '無題';
+    $('#topbtn').classList.toggle('on', !!st.top);
+    nagiBase();
+  }
+  setInterval(() => { if (st.recording && st.started_ms) $('#rc-time').textContent = mmss((Date.now() - st.started_ms) / 1000); }, 500);
+
+  // ---- 本文(文字起こし・回答) ----
+  function clearBody() {
+    $('#utts').innerHTML = ''; $('#partial').textContent = ''; $('#cards').innerHTML = ''; $('#summary').textContent = '';
+    utts.clear(); cards.clear(); answersUnread = 0; badge(); clearPlans();
+  }
+  function addUtt(u, atS, j) {
+    const pane = $('#p-transcript');
+    const keep = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 60;
+    const el = document.createElement('div');
+    el.className = 'utt ' + u.channel; el.dataset.rid = u.rid;
+    el.innerHTML = `<span class="at">${mmss(atS)}</span><span class="who">${u.channel === 'mic' ? '自分' : '相手'}</span>` +
+      `<span><span class="tx">${esc(u.text)}</span><div class="j"></div></span>`;
+    $('#utts').appendChild(el); utts.set(u.rid, el);
+    if (j) setJudgment(u.rid, j);
+    if (keep) pane.scrollTop = pane.scrollHeight;
+  }
+  function setJudgment(rid, j) {
+    const el = utts.get(rid); if (!el) return;
+    const ms = j.ms != null ? ` ${Math.round(j.ms)}ms` : '';
+    el.querySelector('.j').textContent = j.trigger ? `質問(Jev${ms} · 自分宛て ${j.to_me ?? '-'} · ${j.intent ?? ''})→ 回答タブ` :
+      (j.speech_act ? `${j.speech_act} · 自分宛て ${j.to_me ?? '-'}` : '');
+    el.classList.toggle('q', !!j.trigger);
+  }
+  function card(rid, question) {
+    let c = cards.get(rid); if (c) return c;
+    const el = document.createElement('div'); el.className = 'card new'; el.dataset.rid = rid;
+    el.innerHTML = `<h3>${esc(question || '')}</h3><div class="nagi"></div><div class="meta"></div><div class="intent"></div>
+      <div class="sec">回答候補</div><div class="answers"></div><div class="sec">逆質問候補</div><div class="counters"></div>
+      <div class="sec know-sec" style="display:none">ナレッジ</div><div class="know"></div>`;
+    $('#cards').insertBefore(el, $('#cards').firstChild);
+    setTimeout(() => el.classList.remove('new'), 8000);
+    c = {el, answers: new Map(), counters: new Map()}; cards.set(rid, c);
+    return c;
+  }
+  const qtext = (rid) => utts.get(rid)?.querySelector('.tx')?.textContent || '';
+  function candRow(isA, idx, parts) {
+    const row = document.createElement('div'); row.className = 'cand'; row.dataset.index = idx;
+    const speak = isA ? (parts[1] || parts[0]) : parts[0];
+    if (isA) {
+      const src = (parts[2] || '').replace(/^根拠\s*[:：]\s*/, '');
+      row.innerHTML = `<span class="n">${idx}</span><span><span class="t">${esc(parts[0])}</span> ${esc(parts[1] || '')}` +
+        (src && src !== 'なし' ? ` <span class="s">根拠: ${esc(src)}</span>` : '') + `</span><span class="copy" title="コピー">⧉</span>`;
+    } else {
+      row.innerHTML = `<span class="n">${idx}</span><span><span class="t">${esc(parts[0])}</span>` +
+        (parts[1] ? ` <span class="s">— ${esc(parts[1])}</span>` : '') + `</span><span class="copy" title="コピー">⧉</span>`;
+    }
+    row.querySelector('.copy').onclick = () => navigator.clipboard?.writeText(speak);
+    return row;
+  }
+  const LINE = /^(意図|回答\d+|逆質問\d+)\s*[:：]\s*(.*)$/;
+  function cueLine(ev) {
+    const m = LINE.exec(ev.line.trim()); if (!m) return;
+    const c = card(ev.rid, qtext(ev.rid));
+    if (m[1] === '意図') { c.el.querySelector('.intent').textContent = '意図: ' + m[2]; return; }
+    const isA = m[1].startsWith('回答'), idx = parseInt(m[1].replace(/\D/g, ''), 10);
+    const row = candRow(isA, idx, m[2].split('|').map(s => s.trim()));
+    c.el.querySelector(isA ? '.answers' : '.counters').appendChild(row);
+    (isA ? c.answers : c.counters).set(idx, row);
+  }
+  function ranking(ev) {
+    const c = cards.get(ev.rid); if (!c) return;
+    if (ev.kind === 'answer') { nagiLine(c, NAGI.ranked); nagiSay('★ から、結論を先にどうぞ。', 'cue', 15000); }   // 最初の文だけだと「★ から。」で切れる
+    const map = ev.kind === 'answer' ? c.answers : c.counters, box = c.el.querySelector(ev.kind === 'answer' ? '.answers' : '.counters');
+    ev.items.forEach((it, i) => {
+      const row = map.get(it.index); if (!row) return;
+      const star = i < ev.display && it.total != null;
+      row.classList.toggle('star', star); row.classList.toggle('dim', !star);
+      row.querySelector('.n').textContent = (star ? '★' : '') + it.index;
+      box.appendChild(row);
+    });
+  }
+  function knowledge(rid, items) {
+    if (!items?.length) return;
+    const c = card(rid, qtext(rid));
+    c.el.querySelector('.know-sec').style.display = '';
+    const k = c.el.querySelector('.know'); k.innerHTML = '';
+    items.forEach(it => { const s = document.createElement('span'); s.textContent = it.path.split('/').pop().replace(/\.md$/, '') + (it.heading ? ' › ' + it.heading : ''); s.title = it.snippet || ''; k.appendChild(s); });
+  }
+
+  // ---- 録音後の画面 ----
+  async function openReview(id) {
+    let d; try { d = await (await fetch('/api/sessions/' + encodeURIComponent(id))).json(); } catch (e) { return; }
+    if (d.recording) { openLive(); return; }
+    view = {kind: 'review', id, data: d};
+    clearBody();
+    setupPlayer(d);
+    estimateStarts(d.transcript);
+    d.transcript.forEach(u => {
+      const pos = uttPos(u);
+      addUtt(u, pos ?? u.at_s, d.judgments[u.rid]);
+      const el = utts.get(u.rid);
+      if (el && pos != null) { el.dataset.pos = pos; el.onclick = (e) => { if (e.target.closest('.copy')) return; seek(pos); play(); }; }
+    });
+    if (!d.transcript.length) $('#utts').innerHTML = '<div class="empty">文字起こしはありません</div>';
+    const qs = d.transcript.filter(u => d.judgments[u.rid]?.trigger || d.cues[u.rid]?.answers?.length);
+    qs.slice().reverse().forEach(u => {
+      const cu = d.cues[u.rid] || {}; const c = card(u.rid, u.text); c.el.classList.remove('new');
+      if (cu.intent) c.el.querySelector('.intent').textContent = '意図: ' + cu.intent;
+      (cu.answers || []).forEach((a, i) => { const r = candRow(true, i + 1, [a.title, a.body, a.source]); if (a.star) r.classList.add('star'); r.querySelector('.n').textContent = (a.star ? '★' : '') + (i + 1); c.el.querySelector('.answers').appendChild(r); });
+      (cu.counters || []).forEach((a, i) => { const r = candRow(false, i + 1, [a.question, a.aim]); if (a.star) r.classList.add('star'); r.querySelector('.n').textContent = (a.star ? '★' : '') + (i + 1); c.el.querySelector('.counters').appendChild(r); });
+      knowledge(u.rid, cu.knowledge);
+    });
+    if (!qs.length) $('#cards').innerHTML = '<div class="empty">この記録では質問を検出していません</div>';
+    (d.plans || []).forEach(pl => {
+      const c = planCard(pl.pid, pl.trigger, pl.model, pl.at_s);
+      pl.items.forEach(it => { const r = planRow(c, it); if (it.star) { r.classList.add('star'); r.querySelector('.n').textContent = '★' + it.index; } });
+      planSt(c, pl.ok ? '' : pl.error === 'cancelled' ? '相手の質問を優先して中断' : ('失敗: ' + (pl.error || '')), pl.ok ? '' : 'cut');
+    });
+    if (!(d.plans || []).length) $('#plans').innerHTML = '<div class="empty">この記録では質問タブの候補を出していません</div>';
+    $('#summary').textContent = d.summary || 'サマリはありません';
+    renderHead(); renderList();
+    selectTab('transcript');
+  }
+  function openLive() {
+    if (!st.recording) return;
+    stopPlayer();
+    const was = view.kind === 'live';
+    view = {kind: 'live', id: st.session};
+    if (!was) { clearBody(); es && es.close(); connect(); }   // 履歴ごと取り直す
+    renderHead(); renderList();
+  }
+
+  // ---- 質問タブ(U3)。相手からの質問(回答タブ)が常に優先(U4) ----
+  const plans = new Map();   // pid → {el, rows: Map(index → row)}
+  let questionsUnread = 0;
+  let qWait = false;         // 相手の質問に回答中で、質問タブを待たせている
+  const TRIGGER_JA = {auto: '自動', manual: '手動', deep: '深く考える'};
+  const modelJa = (m) => /opus/i.test(m || '') ? 'Opus' : /sonnet/i.test(m || '') ? 'Sonnet' : /haiku/i.test(m || '') ? 'Haiku' : (m || '');
+  function qBadge() { const n = $('#n-questions'); n.textContent = questionsUnread; n.classList.toggle('on', questionsUnread > 0); }
+  function qStatus(text, busy = false) { const e = $('#q-status'); e.textContent = text || ''; e.classList.toggle('busy', busy); }
+  function planCard(pid, trigger, model, atS) {
+    let c = plans.get(pid); if (c) return c;
+    $('#plans-empty')?.remove();
+    const el = document.createElement('div'); el.className = 'card plan'; el.dataset.pid = pid;
+    el.innerHTML = `<div class="head"><span>${esc(TRIGGER_JA[trigger] || trigger)} ・ ${esc(modelJa(model))}` +
+      (atS != null ? ` ・ ${mmss(atS)}` : '') + `</span><span class="st"></span></div><div class="rows"></div>`;
+    $('#plans').insertBefore(el, $('#plans').firstChild);
+    c = {el, rows: new Map()}; plans.set(pid, c);
+    return c;
+  }
+  function planRow(c, it) {
+    const row = document.createElement('div'); row.className = 'qrow'; row.dataset.index = it.index;
+    row.innerHTML = `<span class="n">${it.index}</span><span><span class="q">${esc(it.question)}</span>` +
+      (it.timing ? `<span class="tm">${esc(it.timing)}</span>` : '') + (it.aim ? `<div class="a">${esc(it.aim)}</div>` : '') +
+      `</span><span class="copy" title="コピー">⧉</span>`;
+    row.querySelector('.copy').onclick = () => navigator.clipboard?.writeText(it.question);
+    c.el.querySelector('.rows').appendChild(row); c.rows.set(it.index, row);
+    return row;
+  }
+  const PLAN_LINE = /^質問(\d+)\s*[:：]\s*(.*)$/;
+  function planSt(c, text, cls = '') { const e = c.el.querySelector('.st'); e.textContent = text; e.className = 'st ' + cls; }
+  function clearPlans() {
+    plans.clear(); questionsUnread = 0; qBadge(); qStatus(''); qWait = false;
+    $('#plans').innerHTML = `<div class="empty" id="plans-empty">${esc(nagiOn ? NAGI.plansEmpty : PLANS_EMPTY)}</div>`;
+  }
+  const planHandlers = {
+    plan_start(ev) {
+      const c = planCard(ev.pid, ev.trigger, ev.model, ((ev.t || Date.now()) - (st.started_ms || Date.now())) / 1000);
+      planSt(c, '考え中…', 'run'); qStatus(`${TRIGGER_JA[ev.trigger] || ''}で考えています(${modelJa(ev.model)})`, true);
+    },
+    plan_line(ev) {
+      const m = PLAN_LINE.exec((ev.line || '').trim()); if (!m) return;
+      const parts = m[2].split('|').map(x => x.trim());
+      planRow(planCard(ev.pid), {index: +m[1], question: parts[0] || '', aim: parts[1] || '', timing: parts[2] || ''});
+    },
+    plan_ranking(ev) {
+      const c = plans.get(ev.pid); if (!c) return;
+      ev.items.forEach((it, i) => {
+        const row = c.rows.get(it.index); if (!row) return;
+        const star = i < ev.display && it.total != null;
+        row.classList.toggle('star', star); row.classList.toggle('dim', !star);
+        row.querySelector('.n').textContent = (star ? '★' : '') + it.index;
+        c.el.querySelector('.rows').appendChild(row);
+      });
+    },
+    plan_done(ev) {
+      const c = plans.get(ev.pid); if (!c) return;
+      if (ev.ok) { planSt(c, `完了 ${((ev.ms_total || 0) / 1000).toFixed(1)} s`); qStatus(nagiOn ? NAGI.planDone : '');
+        if (!$('#p-questions').classList.contains('sel')) { questionsUnread++; qBadge(); } }
+      else if (ev.error === 'cancelled') { planSt(c, '相手の質問を優先して中断', 'cut'); }
+      else { planSt(c, '失敗: ' + (ev.error || ''), 'cut'); qStatus(''); }
+    },
+  };
+  $('#q-now').onclick = () => action('plan');
+  $('#q-deep').onclick = () => action('plan_deep');
+  $('#q-auto').onchange = (e) => { if (!!st.plan_auto !== e.target.checked) action('plan_auto'); };
+
+  // ---- 録音後の再生(U2) ----
+  // 2 本(スピーカー = system / マイク = mic)を同時に再生し、「両方 / スピーカー / マイク」は音量で出し分ける(ずれない)。
+  // 時間軸 = 早く録音が始まった方の頭を 0 とする。各チャネルは録音の頭の壁時計(t0_ms)の差だけ後ろにずれて始まる。
+  const player = {chs: {}, master: null, dur: 0, mode: 'both', lv: null, playing: false, timers: [], scrub: null};
+  const chan = (ch) => ch === 'mic' || ch === 'room' ? 'mic' : 'system';
+  function setupPlayer(d) {
+    stopPlayer();
+    player.chs = {}; player.lv = null; player.dur = 0; player.mode = 'both';
+    document.querySelectorAll('#pl-ch button').forEach(b => b.classList.toggle('sel', b.dataset.v === 'both'));
+    const au = d.audio || {};
+    const t0s = Object.values(au).map(a => a.t0_ms).filter(x => x != null);
+    const t0min = t0s.length ? Math.min(...t0s) : null;
+    for (const ch of ['system', 'mic']) {
+      const a = au[ch] || (ch === 'mic' ? au.room : null); if (!a) continue;
+      const el = $('#au-' + ch); el.src = a.url; el.load();
+      player.chs[ch] = {el, off: t0min != null && a.t0_ms != null ? (a.t0_ms - t0min) / 1000 : 0};
+      el.onloadedmetadata = () => { player.dur = Math.max(player.dur, ...Object.values(player.chs).map(c => (c.el.duration || 0) + c.off)); drawPlayer(); };
+      el.onended = () => { if (player.master && el === player.master.el) pause(); };
+    }
+    player.master = player.chs.system || player.chs.mic || null;
+    const has = !!player.master;
+    $('#pl-row').style.display = has ? '' : 'none'; $('#pl-none').style.display = has ? 'none' : '';
+    document.querySelectorAll('#pl-ch button').forEach(b => { b.disabled = b.dataset.v !== 'both' && !player.chs[b.dataset.v]; b.style.opacity = b.disabled ? .35 : 1; });
+    if (has) fetch(`/api/sessions/${encodeURIComponent(d.id)}/levels`).then(r => r.ok ? r.json() : null).then(lv => { player.lv = lv; drawPlayer(); }).catch(() => {});
+    applyVolumes(); drawPlayer();
+  }
+  // 音声認識は 1 回の確定(最大約 20 s)ごとにしか時刻を返さず、そこから分けた文は同じ start/end を持つ。
+  // 同じかたまりの文は、文字数の割合で開始位置を見積もる(行クリックでその文の辺りから再生するため)。
+  const uttStart = new Map();
+  function estimateStarts(transcript) {
+    uttStart.clear();
+    const groups = new Map();
+    transcript.forEach(u => { const k = `${u.channel}|${u.start_seconds}|${u.end_seconds}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(u); });
+    for (const g of groups.values()) {
+      const total = g.reduce((a, u) => a + u.text.length, 0) || 1;
+      let acc = 0;
+      for (const u of g) {
+        const s = u.start_seconds, e = u.end_seconds;
+        uttStart.set(u.rid, s != null && e != null && e > s ? s + (e - s) * acc / total : s);
+        acc += u.text.length;
+      }
+    }
+  }
+  function uttPos(u) {
+    const c = player.chs[chan(u.channel)] || player.master, s = uttStart.has(u.rid) ? uttStart.get(u.rid) : u.start_seconds;
+    return c && s != null ? Math.max(0, s + c.off) : null;
+  }
+  function pos() { const m = player.master; return m ? m.el.currentTime + m.off : 0; }
+  function applyVolumes() { for (const [ch, c] of Object.entries(player.chs)) c.el.volume = player.mode === 'both' || player.mode === ch ? 1 : 0; }
+  function clearTimers() { player.timers.forEach(clearTimeout); player.timers = []; }
+  function seek(p) {
+    p = Math.max(0, Math.min(p, player.dur || p));
+    clearTimers();
+    for (const c of Object.values(player.chs)) {
+      const t = p - c.off;
+      c.el.currentTime = Math.max(0, t);
+      if (player.playing) {
+        if (t < 0) { c.el.pause(); player.timers.push(setTimeout(() => c.el.play().catch(() => {}), -t * 1000)); } else c.el.play().catch(() => {});
+      }
+    }
+    drawPlayer();
+  }
+  function play() {
+    if (!player.master) return;
+    if (player.dur && pos() >= player.dur - 0.05) seek(0);
+    player.playing = true; $('#pl-btn').innerHTML = '&#10074;&#10074;';
+    seek(pos());
+  }
+  function pause() {
+    player.playing = false; clearTimers(); $('#pl-btn').innerHTML = '&#9654;';
+    Object.values(player.chs).forEach(c => c.el.pause());
+  }
+  function stopPlayer() { pause(); Object.values(player.chs).forEach(c => { c.el.removeAttribute('src'); c.el.load(); }); player.chs = {}; player.master = null; }
+  $('#pl-btn').onclick = () => player.playing ? pause() : play();
+  document.querySelectorAll('#pl-ch button').forEach(b => b.onclick = () => {
+    if (b.disabled) return;
+    player.mode = b.dataset.v;
+    document.querySelectorAll('#pl-ch button').forEach(x => x.classList.toggle('sel', x === b));
+    applyVolumes(); drawPlayer();
+  });
+  // 波形をつかんで動かす(2026-09-26)。押している間は再生位置の線と時刻だけを毎フレーム動かし、
+  // 離したらそこへ移る(音声を動かすたびに頭出しするとカクつくため)。再生中なら音だけ止め、離したら続きを再生する。
+  const wave = $('#pl-wave');
+  const posAt = (e) => { const r = wave.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * player.dur; };
+  wave.addEventListener('pointerdown', (e) => {
+    if (!player.dur || e.button !== 0) return;
+    e.preventDefault();
+    wave.setPointerCapture(e.pointerId);
+    clearTimers(); Object.values(player.chs).forEach(c => c.el.pause());   // player.playing はそのまま(ボタンの表示を変えない)
+    player.scrub = posAt(e);
+  });
+  wave.addEventListener('pointermove', (e) => { if (player.scrub != null) player.scrub = posAt(e); });
+  const endScrub = (e, apply = true) => {
+    if (player.scrub == null) return;
+    const p = apply ? posAt(e) : player.scrub;
+    player.scrub = null;
+    seek(p);   // 再生中なら seek がそのまま続きを鳴らす
+  };
+  wave.addEventListener('pointerup', (e) => endScrub(e));
+  wave.addEventListener('pointercancel', (e) => endScrub(e, false));
+  wave.addEventListener('lostpointercapture', (e) => endScrub(e, false));
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || view.kind !== 'review' || !player.master) return;
+    if (e.target.closest('input, [contenteditable="true"], button')) return;
+    e.preventDefault(); player.playing ? pause() : play();
+  });
+  function playerSeries() {   // 選んだチャネルの 0.1 s ごとの音量(時間軸に頭合わせ・両方は大きい方)
+    const lv = player.lv?.channels; if (!lv) return null;
+    const out = [];
+    for (const [ch, c] of Object.entries(player.chs)) {
+      if (player.mode !== 'both' && player.mode !== ch) continue;
+      const a = lv[ch] || (ch === 'mic' ? lv.room : null) || [], sh = Math.round(c.off * 10);
+      for (let i = 0; i < a.length; i++) { const j = i + sh; out[j] = Math.max(out[j] ?? -90, a[i]); }
+    }
+    return out;
+  }
+  function drawPlayer() {
+    const cv = $('#pl-wave'); if (!cv || !cv.clientWidth || view.kind !== 'review') return;
+    const dpr = fitCanvas(cv), g = cv.getContext('2d'), W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    const dur = player.dur, p = player.scrub ?? pos(), series = playerSeries();
+    const px = dur ? (p / dur) * W : 0;
+    const step = 3 * dpr, n = Math.floor(W / step);
+    for (let k = 0; k < n; k++) {
+      let v = 0;
+      if (series && series.length && dur) {
+        const a = Math.floor((k / n) * dur * 10), b = Math.max(a + 1, Math.floor(((k + 1) / n) * dur * 10));
+        let m = -90; for (let j = a; j < b; j++) if (series[j] != null && series[j] > m) m = series[j];
+        v = Math.max(0, Math.min(1, (m + 60) / 50));
+      }
+      const x = k * step, h = v > 0.02 ? Math.max(2 * dpr, v * (H - 6 * dpr)) : dpr;
+      g.fillStyle = x < px ? colors.accent : colors.waveDim;
+      g.fillRect(x, (H - h) / 2, Math.max(1, step - dpr), h);
+    }
+    g.fillStyle = colors.playhead; g.fillRect(Math.min(W - dpr, px), 0, Math.max(1, dpr), H);   // 再生位置
+    $('#pl-time').textContent = `${mmss(p)} / ${mmss(dur)}`;
+    // 再生中の発言を強調
+    if (player.playing) {
+      let cur = null;
+      document.querySelectorAll('.utt[data-pos]').forEach(el => { if (+el.dataset.pos <= p + 0.05) cur = el; });
+      document.querySelectorAll('.utt.playing').forEach(el => { if (el !== cur) el.classList.remove('playing'); });
+      if (cur && !cur.classList.contains('playing')) { cur.classList.add('playing'); cur.scrollIntoView({block: 'nearest'}); }
+    }
+  }
+  function syncPlayer() {   // 再生中、マスター以外が 0.12 s 以上ずれたら合わせ直す
+    if (!player.playing || !player.master) return;
+    const p = pos();
+    for (const c of Object.values(player.chs)) {
+      if (c === player.master || c.el.paused) continue;
+      const t = p - c.off;
+      if (t >= 0 && Math.abs(c.el.currentTime - t) > 0.12) c.el.currentTime = t;
+    }
+  }
+
+  // ---- 波形(毎フレーム描画・60 fps 以上) ----
+  // 音量は helper から 0.1 s ごとに届くが、届き方にむらがある(マイクは約 0.17 s おきに 2 件まとめて等)。
+  // 届いた順に 0.1 s 間隔の時刻を振り直し、表示を WAVE_DELAY だけ遅らせて一定の速さで横に流す。
+  const SAMPLE_MS = 100, WAVE_DELAY = 200, STEP_PX = 4;   // STEP_PX = 1 サンプルの幅(CSS px)→ 40 px/s で流れる
+  function level(ev) {
+    const w = levels[ev.channel === 'mic' ? 'mic' : 'system'];
+    const now = performance.now();
+    let t = w.length ? w[w.length - 1].t + SAMPLE_MS : now;
+    if (Math.abs(t - now) > 400) t = now;   // 途切れ・大きな遅れの後は今に合わせ直す
+    w.push({t, v: Math.max(0, Math.min(1, (ev.db + 60) / 50))});
+    while (w.length && now - w[0].t > 20000) w.shift();
+  }
+  function fitCanvas(cv) {
+    const dpr = window.devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr);
+    if (W && H && (cv.width !== W || cv.height !== H)) { cv.width = W; cv.height = H; }
+    return dpr;
+  }
+  function drawWave(ch, now) {
+    const cv = $('#wv-' + ch); if (!cv || !cv.clientWidth) return;
+    const dpr = fitCanvas(cv), g = cv.getContext('2d'), W = cv.width, H = cv.height, a = levels[ch];
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = ch === 'mic' ? colors.self : colors.other;   // 相手(スピーカー)と自分(マイク)の色
+    const step = STEP_PX * dpr, bar = Math.max(1, 2.4 * dpr), play = now - WAVE_DELAY;
+    for (let i = a.length - 1; i >= 0; i--) {
+      const x = W - ((play - a[i].t) / SAMPLE_MS) * step;   // 新しいものほど右。時間に比例して滑らかに左へ流れる
+      if (x > W + step) continue;
+      if (x < -step) break;
+      const v = a[i].v;
+      if (v <= 0.02) { g.fillRect(x, H / 2 - dpr / 2, bar * 0.8, dpr); continue; }   // 無音は点線
+      const h = Math.max(2 * dpr, v * (H - 4 * dpr));
+      g.fillRect(x, (H - h) / 2, bar, h);
+    }
+  }
+  function frame(now) {
+    if (st.recording) { drawWave('mic', now); drawWave('system', now); }
+    if (view.kind === 'review' && player.master) { syncPlayer(); drawPlayer(); }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // 途中の文字の 1 行(2026-09-27): 無音の間、音声認識が 10 s ごとに「あ」を 1 文字だけ出し、確定せずに捨てられて
+  // 「相手: あ」が録音の終わりまで残っていた(ライブ字幕と同じ直し方)。1 文字の途中は出さない(話し声ならすぐ伸びる)・
+  // 6 s 更新も確定もない途中は消す(捨てられた相づちなども残さない)
+  let partialAt = 0;
+  const PARTIAL_STALE_MS = 6000;
+  function livePartial(ch, text) {
+    if ((text || '').trim().length < 2) return;
+    $('#partial').textContent = `${ch === 'mic' ? '自分' : '相手'}: ${text}`;
+    partialAt = Date.now();
+  }
+  setInterval(() => { if ($('#partial').textContent && Date.now() - partialAt > PARTIAL_STALE_MS) $('#partial').textContent = ''; }, 1000);
+
+  // ---- ライブ(SSE) ----
+  const handlers = {
+    state(ev) {
+      const wasRec = st.recording; st = ev;
+      if (st.recording && wasRec === false && nagiOn)   // 画面を開いてから始まった録音だけ(開き直したときは言わない)
+        toast((NAGI.start[st.mode] || NAGI.start.participant) + (st.privacy === 'local' ? ' ' + NAGI.local : ''), false, true);
+      if (ev.plan_auto !== undefined) $('#q-auto').checked = !!ev.plan_auto;
+      if (st.recording && !wasRec && view.kind !== 'review') { view = {kind: 'live', id: st.session}; }
+      if (!st.recording && wasRec && view.kind === 'live') { /* session_done で録音後の画面へ移る */ }
+      renderHead(); renderList();
+    },
+    session_started(ev) { stopPlayer(); levels.mic = []; levels.system = []; view = {kind: 'live', id: ev.id}; clearBody(); selectTab('transcript'); loadList(); },
+    session_done(ev) { nagiSay(ev.summary ? NAGI.savedSummary : NAGI.saved, 'done', 20000);
+      loadList().then(() => { if (view.kind === 'live' || view.id === ev.id) openReview(ev.id); });
+      if (nagiOn) toast(ev.summary ? NAGI.savedSummary : NAGI.saved, false, true);
+      else toast('録音を保存しました' + (ev.summary ? '(サマリ作成済み)' : '')); },
+    utterance(ev) { if (view.kind !== 'live') return; addUtt(ev, ((ev.t || Date.now()) - (st.started_ms || Date.now())) / 1000); $('#partial').textContent = ''; },
+    partial(ev) { if (view.kind === 'live') livePartial(ev.channel, ev.text); },
+    judgment(ev) {
+      if (view.kind !== 'live') return;
+      setJudgment(ev.rid, ev);
+      if (ev.trigger) {   // 相手からの質問: 回答の生成が最優先(質問タブは待機)。タブは切り替えず、回答タブに件数を出す(2026-09-26)
+        qWait = true; qStatus(nagiOn ? NAGI.planWait : '相手の質問に回答中のため、質問タブは待機しています', true);
+        nagiLine(card(ev.rid, qtext(ev.rid)), st.llm === 'off' ? NAGI.askedNoLlm : NAGI.asked);
+        nagiSay(st.llm === 'off' ? NAGI.askedNoLlm : NAGI.asked, 'cue', 15000);
+        if (!$('#p-answers').classList.contains('sel')) { answersUnread++; badge(); }
+      }
+    },
+    knowledge(ev) { if (view.kind === 'live') knowledge(ev.rid, ev.items); },
+    cue_line(ev) { if (view.kind === 'live') cueLine(ev); },
+    ranking(ev) { if (view.kind === 'live') ranking(ev); },
+    cue_done(ev) { if (qWait) { qWait = false; qStatus(''); }
+      const c = cards.get(ev.rid); if (c) c.el.querySelector('.meta').textContent = ev.ok ? `生成 ${Math.round(ev.ms_total)}ms(初トークン ${Math.round(ev.ms_first || 0)}ms)` : `生成 ${ev.error || '失敗'}`; },
+    level,
+    ...Object.fromEntries(Object.entries(planHandlers).map(([k, f]) => [k, (ev) => { if (view.kind === 'live') f(ev); }])),
+    settings(ev) { applySettings(ev); },
+    sessions_changed: sessionsChanged,
+    status(ev) { const n = nagiOn && NAGI.code[ev.code]; toast(n || ev.text, false, !!n); nagiEvent(ev.code); },
+    error(ev) { const n = nagiOn && NAGI.code[ev.code]; toast(n || ev.text, true, !!n); nagiEvent(ev.code); },
+  };
+  const NAGI_EVENT = {silence: ['alert', 15000], silence_end: ['listen', 6000], stopping: ['think', 20000], summary: ['think', 30000]};
+  function nagiEvent(code) { const m = NAGI_EVENT[code]; if (m) nagiSay(NAGI.code[code], m[0], m[1]); }
+  let es = null;
+  function connect() {
+    es = new EventSource('/events');
+    es.onmessage = (m) => { try { const ev = JSON.parse(m.data); (handlers[ev.type] || (() => {}))(ev); } catch (e) { console.error(e); } };
+  }
+
+  // ---- 操作 ----
+  $('#recbtn').onclick = () => { if (st.recording) action('stop'); else { renderStartNote(); $('#startdlg').classList.add('open'); $('#sd-title').focus(); } };
+  $('#sd-local').onchange = renderStartNote;
+  document.querySelectorAll('#sd-mode button').forEach(b => b.onclick = () => { document.querySelectorAll('#sd-mode button').forEach(x => x.classList.toggle('sel', x === b)); });
+  $('#sd-cancel').onclick = () => $('#startdlg').classList.remove('open');
+  $('#sd-ok').onclick = () => {
+    const mode = document.querySelector('#sd-mode button.sel').dataset.v;
+    action('start', {mode, privacy: $('#sd-local').checked ? 'local' : 'private', title: $('#sd-title').value.trim()});
+    $('#startdlg').classList.remove('open'); $('#sd-title').value = '';
+  };
+  // 日本語入力の変換中・確定のキー。WebKit(アプリのウィンドウ)は変換確定の Enter で isComposing が false・keyCode 229 で来る
+  const imeKey = (e) => e.isComposing || e.keyCode === 229;
+  // Enter は文字の確定だけで、録音は「開始」ボタンでだけ始める(2026-09-26)
+  $('#sd-title').onkeydown = (e) => { if (e.key === 'Escape' && !imeKey(e)) $('#sd-cancel').click(); };
+  $('#reccard').onclick = openLive;
+  $('#topbtn').onclick = () => {
+    const on = !st.top;
+    window.webkit?.messageHandlers?.meetcue?.postMessage({cmd: 'top', on});   // Meeting Cue!.app のウィンドウへ直接
+    action('top', {on});                                                      // 状態の記録(デバッグ起動では helper へ)
+  };
+  $('#opsbtn').onclick = (e) => { e.stopPropagation(); $('#opsmenu').classList.toggle('open'); };
+  document.addEventListener('click', () => { $('#opsmenu').classList.remove('open'); $('#recmenu').classList.remove('open'); });
+  // クイック録音(2026-09-27): 題名と立場を選ばずにすぐ始める(メニューバーの「録音を開始」と同じ = 会議に参加・題名なし)
+  $('#recmore').onclick = (e) => { e.stopPropagation(); $('#opsmenu').classList.remove('open'); $('#recmenu').classList.toggle('open'); };
+  document.querySelectorAll('#recmenu button').forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); $('#recmenu').classList.remove('open');
+    if (st.recording || st.saving) return;
+    action('start', {mode: 'participant', privacy: b.dataset.privacy, title: ''});
+  });
+  document.querySelectorAll('#opsmenu button').forEach(b => b.onclick = () => action(b.dataset.a));
+  const side = (on) => { document.body.classList.toggle('noside', !on); $('#sidebtn2').style.display = on ? 'none' : ''; };
+  $('#sidebtn').onclick = () => side(false); $('#sidebtn2').onclick = () => side(true);
+  function editTitle() {
+    if (view.kind === 'empty') return;
+    const t = $('#title'); if (t.getAttribute('contenteditable') === 'true') return;   // 編集中のクリックはカーソルを動かすだけ
+    t.dataset.orig = t.textContent;
+    t.setAttribute('contenteditable', 'true'); t.focus();
+    document.getSelection().selectAllChildren(t);
+  }
+  async function saveTitle() {
+    const t = $('#title'); if (t.getAttribute('contenteditable') !== 'true') return;
+    t.setAttribute('contenteditable', 'false');
+    if (t.textContent.trim() === (t.dataset.orig || '').trim()) return;   // 変わっていなければ保存しない
+    const id = view.kind === 'live' ? st.session : view.id; if (!id) return;
+    await post('/api/sessions/' + encodeURIComponent(id) + '/title', {title: t.textContent.trim()});
+    if (view.kind === 'review') view.data.title = t.textContent.trim() || '無題';
+    loadList();
+  }
+  $('#title').onclick = editTitle;
+  $('#title').onblur = saveTitle;
+  $('#title').onkeydown = (e) => {
+    if (imeKey(e)) return;   // 変換確定の Enter で保存しない
+    if (e.key === 'Enter') { e.preventDefault(); $('#title').blur(); }
+    if (e.key === 'Escape') { $('#title').textContent = $('#title').dataset.orig || ''; $('#title').blur(); }   // 元に戻す
+  };
+
+  connect(); loadList(); renderHead();
+})();
+</script>
+</body>
+</html>

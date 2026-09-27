@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Cue!</title>
+<style>
+  :root { --bg: rgba(18,20,26,0.86); --panel: rgba(255,255,255,0.06); --line: rgba(255,255,255,0.12);
+          --fg: #e8eaf0; --dim: #9aa3b2; --mic: #6cc7d6; --sys: #f0c674; --room: #d39bf0;
+          --cue: #8fe39a; --star: #ffd166; --err: #ff7b72; --know: #8ab4f8; }
+  html, body { margin: 0; height: 100%; background: transparent; color: var(--fg);
+               font: 13px/1.45 -apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  body { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line);
+           font-size: 12px; color: var(--dim); -webkit-app-region: drag; }
+  header .badge { padding: 1px 7px; border-radius: 9px; border: 1px solid var(--line); }
+  header .badge.local { color: #111; background: var(--star); border-color: transparent; font-weight: 700; }
+  header .badge.paused { color: #111; background: var(--err); border-color: transparent; font-weight: 700; }
+  header button { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+                  padding: 2px 8px; cursor: pointer; font-size: 12px; }
+  header button:hover { background: rgba(255,255,255,0.12); }
+  header .sp { flex: 1; }
+  main { flex: 1; display: grid; grid-template-columns: 38% 62%; min-height: 0; }
+  #transcript, #cues { overflow-y: auto; padding: 8px 10px; min-height: 0; }
+  #transcript { border-right: 1px solid var(--line); }
+  .utt { margin: 0 0 6px; padding-left: 8px; border-left: 3px solid var(--line); white-space: pre-wrap; }
+  .utt.mic { border-color: var(--mic); } .utt.system { border-color: var(--sys); } .utt.room { border-color: var(--room); }
+  .utt .ch { color: var(--dim); font-size: 11px; margin-right: 6px; }
+  .utt.q { background: rgba(255,209,102,0.08); border-radius: 4px; }
+  .utt .j { color: var(--dim); font-size: 11px; }
+  #partial { color: var(--dim); font-style: italic; min-height: 1.4em; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 0 0 10px; background: var(--panel); }
+  .card.done { opacity: 0.92; }
+  .card h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+  .card .meta { color: var(--dim); font-size: 11px; margin-bottom: 4px; }
+  .card .intent { color: var(--star); margin: 2px 0 6px; }
+  .card .sec { color: var(--dim); font-size: 11px; margin: 6px 0 2px; letter-spacing: .04em; }
+  .cand { display: flex; gap: 6px; padding: 3px 4px; border-radius: 6px; margin: 1px 0; }
+  .cand .n { color: var(--dim); min-width: 2.2em; font-variant-numeric: tabular-nums; }
+  .cand .t { font-weight: 600; }
+  .cand .b { color: var(--fg); }
+  .cand .s { color: var(--dim); font-size: 11px; }
+  .cand.star { background: rgba(255,209,102,0.12); }
+  .cand.star .n { color: var(--star); }
+  .cand.dim { opacity: 0.55; }
+  .cand .copy { margin-left: auto; color: var(--dim); cursor: pointer; font-size: 11px; }
+  .cand .copy:hover { color: var(--fg); }
+  .know { display: flex; flex-wrap: wrap; gap: 4px; }
+  .know span { border: 1px solid rgba(138,180,248,0.4); color: var(--know); border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+  .know span:hover { background: rgba(138,180,248,0.12); cursor: default; }
+  .status { color: var(--dim); font-size: 11px; margin: 2px 0; }
+  .error { color: var(--err); font-size: 12px; margin: 2px 0; }
+  .card .foot { color: var(--dim); font-size: 11px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <strong style="color:var(--fg)">Meeting Cue!</strong>
+  <span id="mode" class="badge">mode</span>
+  <span id="privacy" class="badge">privacy</span>
+  <span id="paused" class="badge" style="display:none">PAUSED</span>
+  <span id="conn" class="badge">接続中…</span>
+  <span class="sp"></span>
+  <button data-a="toggle_pause" title="⌃⌥P">一時停止/再開</button>
+  <button data-a="deepdive" title="⌃⌥D">今のを深掘り</button>
+  <button data-a="mode" title="⌃⌥M">モード</button>
+  <button data-a="clear" title="表示を消す">クリア</button>
+</header>
+<main>
+  <section id="transcript"><div id="partial"></div></section>
+  <section id="cues"></section>
+</main>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const tr = $('#transcript'), cues = $('#cues'), partialEl = $('#partial');
+  const cards = new Map();      // rid → {el, answers:Map, counters:Map}
+  const utts = new Map();       // rid → el
+  const MODES = ['participant', 'presenter', 'audience'];
+  const MODE_JA = {participant: '参加者', presenter: '登壇者', audience: '聴講'};
+
+  function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function atBottom(el) { return el.scrollHeight - el.scrollTop - el.clientHeight < 40; }
+  function scrollBottom(el) { el.scrollTop = el.scrollHeight; }
+
+  function state(ev) {
+    $('#mode').textContent = MODE_JA[ev.mode] || ev.mode || 'mode';
+    const p = $('#privacy'); p.textContent = ev.privacy === 'local' ? 'LOCAL' : (ev.privacy || '');
+    p.className = 'badge' + (ev.privacy === 'local' ? ' local' : '');
+    $('#paused').style.display = ev.paused ? '' : 'none';
+    document.title = 'Meeting Cue!' + (ev.paused ? ' (一時停止)' : '');
+  }
+
+  function utterance(ev) {
+    const keep = atBottom(tr);
+    const el = document.createElement('div');
+    el.className = 'utt ' + ev.channel; el.dataset.rid = ev.rid;
+    el.innerHTML = `<span class="ch">${esc(ev.channel)}</span>${esc(ev.text)}<div class="j"></div>`;
+    tr.insertBefore(el, partialEl);
+    utts.set(ev.rid, el);
+    partialEl.textContent = '';
+    if (keep) scrollBottom(tr);
+  }
+  function judgment(ev) {
+    const el = utts.get(ev.rid); if (!el) return;
+    el.querySelector('.j').textContent = `${ev.source} ${Math.round(ev.ms)}ms · ${ev.speech_act}(${ev.speech_act_p ?? '-'}) to_me=${ev.to_me ?? '-'} · ${ev.intent ?? ''}` + (ev.trigger ? ' → キュー' : '');
+    if (ev.trigger) el.classList.add('q');
+  }
+  function card(rid, question) {
+    let c = cards.get(rid);
+    if (c) return c;
+    const el = document.createElement('div');
+    el.className = 'card'; el.dataset.rid = rid;
+    el.innerHTML = `<h3>${esc(question || '')}</h3><div class="meta"></div><div class="intent"></div>
+      <div class="sec">回答候補</div><div class="answers"></div>
+      <div class="sec">逆質問候補</div><div class="counters"></div>
+      <div class="sec know-sec" style="display:none">ナレッジ</div><div class="know"></div><div class="foot"></div>`;
+    cues.insertBefore(el, cues.firstChild);
+    c = {el, answers: new Map(), counters: new Map()};
+    cards.set(rid, c);
+    return c;
+  }
+  function questionText(rid) { const u = utts.get(rid); return u ? u.childNodes[1]?.textContent || u.textContent : ''; }
+  const LINE = /^(意図|回答\d+|逆質問\d+)\s*[:：]\s*(.*)$/;
+  function cueLine(ev) {
+    const m = LINE.exec(ev.line.trim()); if (!m) return;
+    const c = card(ev.rid, questionText(ev.rid));
+    const key = m[1], val = m[2];
+    if (key === '意図') { c.el.querySelector('.intent').textContent = '意図: ' + val; return; }
+    const parts = val.split('|').map(s => s.trim());
+    const isA = key.startsWith('回答');
+    const idx = parseInt(key.replace(/\D/g, ''), 10);
+    const row = document.createElement('div');
+    row.className = 'cand'; row.dataset.index = idx;
+    const speak = isA ? (parts[1] || parts[0]) : parts[0];
+    if (isA) {
+      const src = (parts[2] || '').replace(/^根拠\s*[:：]\s*/, '');
+      row.innerHTML = `<span class="n">${idx}</span><span><span class="t">${esc(parts[0])}</span> <span class="b">${esc(parts[1] || '')}</span>` +
+        (src && src !== 'なし' ? ` <span class="s">根拠: ${esc(src)}</span>` : '') + `</span><span class="copy" title="コピー">⧉</span>`;
+    } else {
+      row.innerHTML = `<span class="n">${idx}</span><span><span class="t">${esc(parts[0])}</span>` +
+        (parts[1] ? ` <span class="s">— ${esc(parts[1])}</span>` : '') + `</span><span class="copy" title="コピー">⧉</span>`;
+    }
+    row.querySelector('.copy').onclick = () => navigator.clipboard?.writeText(speak);
+    const box = c.el.querySelector(isA ? '.answers' : '.counters');
+    box.appendChild(row);
+    (isA ? c.answers : c.counters).set(idx, row);
+  }
+  function ranking(ev) {
+    const c = cards.get(ev.rid); if (!c) return;
+    const map = ev.kind === 'answer' ? c.answers : c.counters;
+    const box = c.el.querySelector(ev.kind === 'answer' ? '.answers' : '.counters');
+    ev.items.forEach((it, i) => {
+      const row = map.get(it.index); if (!row) return;
+      const star = i < ev.display && it.total != null;
+      row.classList.toggle('star', star); row.classList.toggle('dim', !star);
+      const n = row.querySelector('.n');
+      n.textContent = (star ? '★' : '') + it.index + (it.total != null ? ` ${it.total.toFixed(2)}` : '');
+      n.title = it.scores ? Object.entries(it.scores).map(([k, v]) => `${k}=${v}`).join(' ') : (it.error || '');
+      box.appendChild(row);   // 採点順に並べ替え
+    });
+    const f = c.el.querySelector('.foot');
+    f.textContent = `Jev の選択 ${Math.round(ev.ms)}ms` + (ev.partial ? '(途中まで)' : '');
+  }
+  function knowledge(ev) {
+    if (!ev.items.length) return;
+    const c = card(ev.rid, questionText(ev.rid));
+    c.el.querySelector('.know-sec').style.display = '';
+    const k = c.el.querySelector('.know'); k.innerHTML = '';
+    ev.items.forEach(it => { const s = document.createElement('span'); s.textContent = it.path.split('/').pop().replace(/\.md$/, '') + (it.heading ? ' › ' + it.heading : ''); s.title = it.snippet; k.appendChild(s); });
+  }
+  function cueDone(ev) {
+    const c = cards.get(ev.rid); if (!c) return;
+    c.el.classList.add('done');
+    const m = c.el.querySelector('.meta');
+    m.textContent = ev.ok ? `生成 ${Math.round(ev.ms_total)}ms（初トークン ${Math.round(ev.ms_first || 0)}ms）` : `生成 ${ev.error || '失敗'}`;
+  }
+  function note(cls, text) {
+    const el = document.createElement('div'); el.className = cls; el.textContent = text;
+    cues.insertBefore(el, cues.firstChild);
+    setTimeout(() => el.remove(), 20000);
+  }
+
+  const handlers = {
+    state, utterance, judgment, cue_line: cueLine, ranking, knowledge, cue_done: cueDone,
+    partial: (ev) => { partialEl.textContent = `… [${ev.channel}] ${ev.text}`; if (atBottom(tr)) scrollBottom(tr); },
+    status: (ev) => note('status', ev.text),
+    error: (ev) => note('error', ev.text),
+  };
+  function connect() {
+    const es = new EventSource('/events');
+    es.onopen = () => { $('#conn').textContent = 'LIVE'; };
+    es.onerror = () => { $('#conn').textContent = '再接続中…'; };
+    es.onmessage = (m) => { try { const ev = JSON.parse(m.data); (handlers[ev.type] || (() => {}))(ev); } catch (e) { console.error(e); } };
+  }
+  document.querySelectorAll('header button').forEach(b => b.onclick = () => {
+    const a = b.dataset.a;
+    if (a === 'clear') { cues.innerHTML = ''; cards.clear(); return; }
+    fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: a})});
+  });
+  connect();
+})();
+</script>
+</body>
+</html>

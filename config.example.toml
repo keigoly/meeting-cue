@@ -1,0 +1,87 @@
+# Meeting Cue! の設定雛形。実体は ~/.meeting-cue/config.toml に置く(git 外)。
+# 鍵は ~/.secrets/meeting-cue.env に OPENROUTER_API_KEY=... の 1 行(このファイルには書かない)。
+
+vault_root = "~/ObsidianVault/vault"     # Obsidian Vault のルート(索引対象)
+mode = "participant"                    # participant | presenter | audience
+privacy = "private"                     # private(クラウド可)| local(クラウド呼び出しなし)
+locale = "ja-JP"
+# 自分の立場の要約(キュー生成のプロンプトに入る。氏名・連絡先など PII は書かない)
+profile = "例: IT 企業のエンジニア。担当分野(製品・技術)と、会議でよく聞かれる話題を短く。"
+
+[llm]
+model = "anthropic/claude-sonnet-5"      # 既定(OpenRouter の model id)
+fast_model = "anthropic/claude-haiku-4.5"
+provider_order = ["Anthropic"]           # 2026-09-25 実測: AWS 経由だと初トークン 3.3s、Anthropic 直で 1.2s
+max_tokens = 1200
+monthly_budget_usd = 10.0                # 超えたらナレッジカードのみで続行(fail-closed)
+# 開発者向け(既定オフ・自己責任): この Mac でログイン済みの Claude Code(claude -p)を、自分の Claude の月額プランで呼ぶ。
+# true にすると設定画面の接続先に「Claude サブスク(Claude Code 経由・開発者向け)」が出る。アプリは認証情報に触れない。
+# Anthropic は他社アプリが Claude.ai のログインを提供すること・利用者の代わりにプランで通信することを禁止しているので、
+# 自分の用途だけに使い、ほかの人に使わせる形で配らない(docs/REQUIREMENTS.md FR-10b)。
+# subscription_cli = false
+# claude_cli_path = ""                   # 空 = PATH と ~/.local/bin/claude から探す
+# claude_cli_warm = 2                    # 録音中に先に起動して待たせておく数(1 つ約 240 MB)
+
+[jev]
+model = "typesafe/jev-1.13"
+act_min = 0.6                            # speech_act が question/request である確率の下限
+to_me_min = 0.5                          # 自分宛である確率の下限(較正は Phase 2)
+
+[selector]                      # 選ぶ係: 候補を多めに生成し、Jev が基準ごとに採点 → 重み付き合計の上位に ★
+enabled = true
+n_answers = 5                   # 生成する回答候補の本数(表示は display 件)
+n_counters = 5
+display = 3
+# 重み(どの基準を重く見るかは人が決める)。省略時は meetcue/judge/selector.py の既定 + mode / intent の上書き
+# [selector.weights.answer]
+# on_point = 1.0        # 質問に正面から答えているか
+# grounded = 1.0        # 根拠の具体性
+# speakable = 0.7       # その場で口に出せるか
+# safe = 0.7            # 断定しすぎ・誤りの恐れの低さ
+# persuasive = 0.8      # 説得力
+# [selector.weights.counter]
+# reveals_intent = 1.0  # 相手の意図・前提を引き出すか
+# answerable = 0.7      # 相手がすぐ答えられるか
+# advances = 0.8        # 次の一手に進めるか
+# polite = 0.5          # 場に合うか
+
+[index]
+include = ["01_Projects", "02_Ideas", "03_Resources", "04_Context"]
+# 仕事のメモや自動のログなど、回答候補に混ぜたくないフォルダは exclude に足す
+exclude = ["04_Context/Session_Log", "04_Context/Discord_Log", "04_Context/Compact_Snapshots",
+           "04_Context/Memo_Private", "00_Inbox/_processed", "_Archive",
+           "03_Resources/YouTube"]   # 動画ノート(コメント単位の雑音・索引 1.2 GB)。含めるなら消す
+chunk_chars = 800
+top_k = 5
+
+[planner]                      # 質問タブ(こちらから聞くべき質問の先回り)。相手からの質問への回答が常に優先
+auto = true                    # 話が進んだら自動で(Sonnet)。画面の「自動で考える」で切り替えられる
+interval_s = 60                # 自動は最大 1 分に 1 回
+min_new_chars = 120            # 前回から会話がこれだけ進んだら
+cooldown_s = 10                # 回答の生成が終わってからこの秒数は自動で考えない
+deep_model = "anthropic/claude-opus-5.5"   # 「深く考える」
+n = 5                          # 候補の本数(Jev の採点で上位 3 件に ★)
+
+[segmenter]
+pause_ms = 500                 # partial 更新が止まってから finalize を送るまで(通常)
+pause_incomplete_ms = 900      # 末尾が助詞・語中のとき(まだ続く)
+pause_sentence_ms = 300        # 末尾が文末記号のとき(速く切る)
+safety_ms = 2500               # finalize 後に final が来なければ強制確定
+flush_carry_ms = 1500          # 繰り越した切れ端を単独で出すまで
+max_chars = 120
+long_utterance_ms = 8000       # 間が来ないまま話し続けても、これを超えて文末があれば確定(0 で無効)
+long_utterance_hard_ms = 20000 # これを超えたら文末がなくても確定(0 で無効)
+
+[segmenter_tap]                 # file / tap 音源(会議アプリの出力)。partial が約 1 秒周期で届くため 1 秒超で待つ
+pause_ms = 1200
+pause_incomplete_ms = 1600
+pause_sentence_ms = 1100
+safety_ms = 3000
+long_utterance_ms = 8000       # 2026-09-26 実測: 一人語りで確定が最大 59 s 遅れた対策
+long_utterance_hard_ms = 20000
+
+[segmenter_self]                # 自分の声(マイク・channel=mic)。短く切ると文の途中で切れて誤りが増える(2026-09-27 読み上げ 6 回ずつ:
+pause_ms = 1200                 # 500/900/300 ms で CER 平均 28.6% → この値で 26.4%)。自分の発言は判定に使わないので確定が遅れても困らない。
+pause_incomplete_ms = 1600      # 対面の相手(room)は判定を急ぐので [segmenter] のまま
+pause_sentence_ms = 1100
+safety_ms = 3000

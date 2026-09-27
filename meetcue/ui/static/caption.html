@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ライブ字幕</title>
+<!-- ライブ字幕(2026-09-27 keigoly様)。
+     録音していない間は本体が字幕だけを動かし(action "caption" を 5 s ごとに送る = 借用・保存しない)、`caption` を受ける。
+     録音中は録音の partial / utterance を使う。翻訳は `caption_tr`。✦ で回答候補(judgment / cue_line / ranking)を下に出す。
+     アプリのウィンドウ(Meeting Cue!.app)では window.webkit.messageHandlers.meetcue で「常に手前」とドラッグ領域を渡す。
+     2026-09-27 見た目を独自に: 上は題と状態の細い帯(40pt・つかんで動かす)、操作は下の操作台、字幕は 1 文ずつの行。 -->
+<style>
+  /* 見た目(2026-09-27 keigoly様: 公開前に独自に・本体と同じ「B パステル」)。空色の明るい地・上は題と状態だけの細い帯
+     (アプリでは信号機ボタンもここ)、操作は下の白い操作台。字幕は 1 文ずつの行に話し手の色の帯・古い行ほど薄く・訳はその行の直下 */
+  :root { --bg: #e9f9f9; --bg2: #d4f1f2; --panel: #ffffff; --fg: #1b2440; --dim: #55647e; --faint: #8593a9;
+          --line: rgba(27,59,90,0.10); --line-hi: rgba(27,59,90,0.18);
+          --btn: #ffffff; --btn-hi: #f3fafa;
+          --accent: #3ed6c8; --accent-ink: #0b1322; --other: #62b6ff; --self: #8f8cff; --rec: #ff5d6c; --star: #ffd166; --cap-size: 26px;
+          --accent-text: color-mix(in srgb, var(--accent) 45%, #0b3d44); --accent-bg: color-mix(in srgb, var(--accent) 18%, #ffffff);
+          --rec-text: #d93446; --shadow: 0 6px 20px rgba(var(--sh),0.08), 0 1px 3px rgba(var(--sh),0.06);
+          --sh: 27,70,100; --glass: 255,255,255; --track: #d9ebee; --rec-bg: color-mix(in srgb, var(--rec) 14%, #fff); color-scheme: light; }
+  /* ダーク(2026-09-27 keigoly様): 本体と同じ夜の配色。⚙ の外観 = システムに合わせる / ライト / ダーク(html の data-theme) */
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f1d29; --bg2: #0a1520; --panel: #172838; --fg: #e4f1f5; --dim: #9fb4c3; --faint: #6f8798;
+    --line: rgba(160,215,230,0.12); --line-hi: rgba(160,215,230,0.22); --btn: #172838; --btn-hi: #1e3345;
+    --accent-text: color-mix(in srgb, var(--accent) 82%, #ffffff); --accent-bg: color-mix(in srgb, var(--accent) 16%, var(--panel));
+    --rec-text: #ff8d99; --rec-bg: color-mix(in srgb, var(--rec) 20%, var(--panel));
+    --sh: 0,0,0; --glass: 30,52,70; --track: #0b1822; --shadow: 0 6px 20px rgba(0,0,0,0.28), 0 1px 3px rgba(0,0,0,0.22); color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg: #0f1d29; --bg2: #0a1520; --panel: #172838; --fg: #e4f1f5; --dim: #9fb4c3; --faint: #6f8798;
+    --line: rgba(160,215,230,0.12); --line-hi: rgba(160,215,230,0.22); --btn: #172838; --btn-hi: #1e3345;
+    --accent-text: color-mix(in srgb, var(--accent) 82%, #ffffff); --accent-bg: color-mix(in srgb, var(--accent) 16%, var(--panel));
+    --rec-text: #ff8d99; --rec-bg: color-mix(in srgb, var(--rec) 20%, var(--panel));
+    --sh: 0,0,0; --glass: 30,52,70; --track: #0b1822; --shadow: 0 6px 20px rgba(0,0,0,0.28), 0 1px 3px rgba(0,0,0,0.22); color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: linear-gradient(170deg, var(--bg), var(--bg2)); color: var(--fg); overflow: hidden;
+               font: 13px/1.5 -apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+               -webkit-user-select: none; user-select: none; }
+  body { display: flex; flex-direction: column; }
+  button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; padding: 0; }
+  svg { display: block; }
+  @keyframes blink { 50% { opacity: .2; } }
+  /* 上の帯: 題と状態(アプリでは左に信号機の分をあける・空いている所をつかむと動かせる) */
+  .top { height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+  body.native .top { padding-left: 88px; }
+  .ttl { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+  .ttl i { font-style: normal; color: var(--accent-text); }
+  .stat { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--dim); background: rgba(var(--glass),0.7);
+          border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+  .stat .led { width: 7px; height: 7px; border-radius: 4px; background: var(--faint); }
+  .stat.run { color: var(--accent-text); background: var(--accent-bg); }
+  .stat.run .led { background: var(--accent); }
+  .stat.rec { color: var(--rec-text); background: var(--rec-bg); }
+  .stat.rec .led { background: var(--rec); animation: blink 1.6s ease-in-out infinite; }
+  .note { flex: 1; min-width: 0; text-align: right; color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note.err { color: var(--rec-text); }
+  /* 本文 */
+  main { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+  #empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--faint); pointer-events: none; }
+  #capwrap { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px 34px 16px; overflow: hidden; }
+  #cap { font-size: var(--cap-size); line-height: 1.45; letter-spacing: .01em; word-break: break-word; -webkit-user-select: text; user-select: text; }
+  #cap .ln { position: relative; padding: 3px 0 3px 16px; color: var(--fg); font-weight: 600; }
+  #cap .ln::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--other); }
+  #cap .ln.mic::before { background: var(--self); }
+  #cap .ln.a1 { opacity: .74; } #cap .ln.a2 { opacity: .52; } #cap .ln.a3 { opacity: .36; }
+  #cap .ln .tr { display: block; font-size: .68em; line-height: 1.45; color: var(--accent-text); margin-top: 1px; }
+  #cap .part { color: color-mix(in srgb, var(--fg) 70%, var(--accent-text)); }
+  #cap .part::before { opacity: .35; }
+  #cap .cursor { display: inline-block; width: .36em; height: 1em; background: var(--accent); vertical-align: -0.12em; margin-left: 3px; border-radius: 2px;
+                 animation: blink 1.1s steps(1) infinite; }
+  /* ✦ 回答候補 */
+  #cues { flex: none; max-height: 46%; overflow: auto; margin: 0 14px 10px; padding: 12px 14px 10px 16px; border-radius: 12px;
+          background: var(--panel); border-left: 4px solid var(--accent); box-shadow: var(--shadow); display: none; }
+  body.ai #cues { display: block; }
+  #cues .q { font-weight: 700; margin-bottom: 6px; display: flex; gap: 8px; }
+  #cues .q::before { content: "Q"; flex: none; width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: var(--accent-ink);
+                     font-size: 11px; font-weight: 800; display: grid; place-items: center; }
+  #cues .cand { display: flex; gap: 8px; padding: 3px 0; color: var(--dim); }
+  #cues .cand.star { color: var(--fg); }
+  #cues .cand .n { flex: none; min-width: 22px; height: 20px; padding: 0 4px; border-radius: 10px; border: 1px solid var(--line-hi); color: var(--faint);
+                   font-size: 11px; display: grid; place-items: center; }
+  #cues .cand.star .n { background: var(--star); color: #3a2a00; border-color: transparent; font-weight: 700; }
+  #cues .cand .t { font-weight: 600; }
+  #cues .sec { color: var(--faint); font-size: 10.5px; font-weight: 700; letter-spacing: .1em; margin-top: 8px; }
+  #cues .none { color: var(--faint); }
+  /* 下の操作台 */
+  .console { flex: none; height: 54px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-top: 1px solid var(--line);
+             background: rgba(var(--glass),0.55); }
+  .seg { display: flex; background: var(--track); border-radius: 11px; padding: 3px; gap: 2px; }
+  .seg button { width: 36px; height: 30px; border-radius: 8px; color: var(--dim); display: grid; place-items: center; }
+  .seg button:hover { color: var(--fg); }
+  .seg button.on { background: var(--panel); color: var(--accent-text); box-shadow: 0 1px 4px rgba(var(--sh),0.12); }
+  .pill { height: 36px; border-radius: 11px; background: var(--btn); border: 1px solid var(--line); padding: 0 11px; display: flex; align-items: center;
+          gap: 5px; font-weight: 700; white-space: nowrap; box-shadow: 0 1px 3px rgba(var(--sh),0.08); }
+  .pill.icon { width: 36px; padding: 0; justify-content: center; }
+  .pill:hover { background: var(--btn-hi); border-color: var(--line-hi); }
+  .pill.on { color: var(--accent-text); background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 55%, #fff); }
+  .pill:disabled { opacity: .45; cursor: default; }
+  .sp { flex: 1; }
+  #rec { padding: 0 14px; gap: 8px; }
+  #rec .dot { width: 10px; height: 10px; border-radius: 5px; background: var(--rec); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rec) 24%, transparent); flex: none; }
+  #rec.stop { background: var(--rec); border-color: transparent; color: #fff; }
+  #rec.stop .dot { background: #fff; border-radius: 2px; box-shadow: none; }
+  @media (max-width: 700px) { #ai .lbl2 { display: none; } #ai { width: 36px; padding: 0; justify-content: center; } }
+  /* ドロップダウン(操作台から上へ開く) */
+  .menu { position: fixed; z-index: 10; min-width: 170px; background: var(--panel); border: 1px solid var(--line-hi);
+          border-radius: 12px; padding: 5px; box-shadow: 0 14px 34px rgba(var(--sh),0.18); display: none; }
+  .menu.open { display: block; }
+  .menu button { display: flex; width: 100%; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; text-align: left; }
+  .menu button:hover { background: var(--accent-bg); }
+  .menu button .ck { width: 14px; color: var(--accent-text); }
+  .menu .sep { height: 1px; background: var(--line); margin: 4px 6px; }
+  .menu .lbl { color: var(--faint); font-size: 11px; padding: 4px 10px 2px; }
+</style>
+</head>
+<body>
+<div class="top" id="top">
+  <span class="ttl"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M6.5 11h4M13 11h4.5M6.5 14.5h7"/></svg>ライブ字幕<i>·</i>Meeting Cue!</span>
+  <span class="stat" id="foot"><span class="led"></span><span id="footl">接続しています…</span></span>
+  <span class="note" id="note"></span>
+</div>
+<main>
+  <div id="empty"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-8l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M7 10.5h4M13.5 10.5H17M7 13.5h7"/></svg><div id="emptyl">スピーカー音声を待機中。</div></div>
+  <div id="capwrap"><div id="cap"></div></div>
+  <div id="cues"><div class="none">相手の質問を検知すると、ここに回答候補が出ます(録音中)。</div></div>
+</main>
+<div class="console" id="console">
+  <div class="seg" id="src">
+    <button data-ch="system" title="スピーカー(相手・会議アプリの音)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg></button>
+    <button data-ch="mic" title="マイク(自分)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></button>
+  </div>
+  <button class="pill" id="lang"><span id="langl">日本語</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14l5-5 5 5"/></svg></button>
+  <button class="pill" id="tr"><span id="trl">翻訳</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14l5-5 5 5"/></svg></button>
+  <button class="pill icon" id="more" title="そのほか(文字の大きさ・字幕を消す)"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
+  <span class="sp"></span>
+  <button class="pill" id="ai" title="回答候補を字幕の下に出す"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l1.9 5.2 5.1 1.9-5.1 1.9L12 17.7l-1.9-5.2L5 10.6l5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg><span class="lbl2">回答候補</span></button>
+  <button class="pill icon" id="pin" title="常に手前(全画面の会議アプリの上にも出す)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6"/><path d="M10 3.5v5.5l-3 3.5h10l-3-3.5V3.5"/><path d="M12 12.5V20.5"/></svg></button>
+  <button class="pill" id="rec"><span class="dot"></span><span id="recl">録音を開始</span></button>
+</div>
+
+<div class="menu" id="langmenu"></div>
+<div class="menu" id="trmenu"></div>
+<div class="menu" id="moremenu"></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const native = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.meetcue);
+  const host = (m) => { try { if (native) window.webkit.messageHandlers.meetcue.postMessage(m); } catch (e) {} };
+  document.body.classList.toggle('native', native);
+  const LOCALES = {'ja-JP': '日本語', 'en-US': 'English'};
+  const TR = {'': 'オフ', ja: '日本語へ', en: '英語へ'};
+  const SIZES = {s: 20, m: 26, l: 34};
+  // 表示の好み(この画面だけ・消えても既定で動く)
+  let pref = {channels: ['system'], locale: 'ja-JP', translate: '', pin: true, ai: false, size: 'm'};
+  try { pref = Object.assign(pref, JSON.parse(localStorage.getItem('meetcue-caption') || '{}')); } catch (e) {}
+  const save = () => { try { localStorage.setItem('meetcue-caption', JSON.stringify(pref)); } catch (e) {} };
+  let st = {};
+  let note = '', noteErr = false;
+
+  // ---- 字幕 ----
+  const MAX_SEGS = 14;
+  const segs = [];              // {rid, ch, text, tr}
+  const partial = {system: '', mic: ''};
+  function render() {
+    const recent = segs.slice(-MAX_SEGS);
+    const pch = pref.channels.filter(c => partial[c]);
+    const p = pch.map(c => partial[c]).join(' ');
+    const live = st.recording || st.caption;
+    const cursor = live ? '<span class="cursor"></span>' : '';   // 字幕が出てからカーソルを出す(最後の行)
+    const n = recent.length, off = p ? 1 : 0;
+    let html = recent.map((s, i) => {
+      const age = n - 1 - i + off;   // 0 = いちばん新しい行。古いほど薄く
+      const tr = pref.translate && s.tr ? `<span class="tr">${esc(s.tr)}</span>` : '';
+      return `<div class="ln ${s.ch === 'mic' ? 'mic' : 'sys'} ${age >= 3 ? 'a3' : age ? 'a' + age : ''}">${esc(s.text)}${!p && i === n - 1 ? cursor : ''}${tr}</div>`;
+    }).join('');
+    if (p) html += `<div class="ln part ${pch.length === 1 && pch[0] === 'mic' ? 'mic' : 'sys'}">${esc(p)}${cursor}</div>`;
+    $('#cap').innerHTML = html;
+    $('#empty').style.display = (n || p) ? 'none' : '';
+  }
+  function addFinal(rid, ch, text) {
+    if (!pref.channels.includes(ch) || !text) return;
+    segs.push({rid, ch, text, tr: ''});
+    if (segs.length > 60) segs.splice(0, segs.length - 60);
+    partial[ch] = '';
+    render();
+  }
+  // 途中の文字(2026-09-27): 無音の間、音声認識が 10 s ごとに「あ」を 1 文字だけ出し、確定せずに捨てられて末尾に残っていた。
+  // 1 文字の途中は出さない(話し声ならすぐ伸びる)・6 s 更新も確定もない途中は消す(捨てられた相づちなどを残さない)
+  const partialAt = {system: 0, mic: 0};
+  const PARTIAL_STALE_MS = 6000;
+  function setPartial(ch, text) {
+    if (!pref.channels.includes(ch)) return;
+    const t = (text || '').trim().length < 2 ? '' : text;
+    if (t === partial[ch]) return;
+    partial[ch] = t; partialAt[ch] = Date.now(); render();
+  }
+  setInterval(() => {
+    const now = Date.now(); let changed = false;
+    for (const ch of Object.keys(partial)) if (partial[ch] && now - partialAt[ch] > PARTIAL_STALE_MS) { partial[ch] = ''; changed = true; }
+    if (changed) render();
+  }, 1000);
+
+  // ---- ✦ 回答候補(録音中・最新の質問だけ) ----
+  const LINE = /^(意図|回答\d+|逆質問\d+)\s*[:：]\s*(.*)$/;
+  const texts = new Map();      // rid → 発言(質問の文面に使う)
+  let cue = null;               // {rid, answers: Map, counters: Map}
+  function cueCard(rid) {
+    if (cue && cue.rid === rid) return cue;
+    const box = $('#cues'); box.innerHTML = `<div class="q">${esc(texts.get(rid) || '相手の質問')}</div><div class="sec">回答候補</div><div class="a"></div><div class="sec">逆質問</div><div class="c"></div>`;
+    cue = {rid, answers: new Map(), counters: new Map()};
+    return cue;
+  }
+  function cueLine(ev) {
+    const m = LINE.exec(String(ev.line || '').trim()); if (!m || m[1] === '意図') return;
+    const c = cueCard(ev.rid); const isA = m[1].startsWith('回答'); const idx = parseInt(m[1].replace(/\D/g, ''), 10);
+    const parts = m[2].split('|').map(s => s.trim());
+    const row = document.createElement('div'); row.className = 'cand';
+    row.innerHTML = `<span class="n">${idx}</span><span><span class="t">${esc(parts[0])}</span> ${esc(isA ? (parts[1] || '') : (parts[1] ? '— ' + parts[1] : ''))}</span>`;
+    $('#cues ' + (isA ? '.a' : '.c')).appendChild(row); (isA ? c.answers : c.counters).set(idx, row);
+  }
+  function ranking(ev) {
+    if (!cue || cue.rid !== ev.rid) return;
+    const map = ev.kind === 'answer' ? cue.answers : cue.counters; const box = $('#cues ' + (ev.kind === 'answer' ? '.a' : '.c'));
+    ev.items.forEach((it, i) => { const row = map.get(it.index); if (!row) return; const star = i < ev.display && it.total != null;
+      row.classList.toggle('star', star); row.querySelector('.n').textContent = (star ? '★' : '') + it.index; box.appendChild(row); });
+  }
+
+  // ---- 上の帯 ----
+  function renderTop() {
+    document.querySelectorAll('#src button').forEach(b => b.classList.toggle('on', pref.channels.includes(b.dataset.ch)));
+    const recLoc = st.recording || st.saving;
+    $('#langl').textContent = LOCALES[recLoc ? 'ja-JP' : pref.locale] || '日本語';
+    $('#lang').disabled = !!recLoc;
+    $('#lang').title = recLoc ? '録音中は録音の言語(日本語)で文字にします' : '字幕の言語';
+    $('#trl').textContent = pref.translate ? '翻訳: ' + (pref.translate === 'ja' ? '日本語' : 'English') : '翻訳';
+    $('#tr').classList.toggle('on', !!pref.translate);
+    $('#pin').classList.toggle('on', !!pref.pin);
+    $('#ai').classList.toggle('on', !!pref.ai);
+    document.body.classList.toggle('ai', !!pref.ai);
+    document.documentElement.style.setProperty('--cap-size', (SIZES[pref.size] || 26) + 'px');
+    const rb = $('#rec'); rb.classList.toggle('stop', !!st.recording);
+    rb.disabled = !st.recording && !!st.saving;
+    $('#recl').textContent = st.recording ? '録音を停止' : st.saving ? '保存しています…' : '録音を開始';
+    const f = $('#foot'); f.classList.toggle('rec', !!st.recording); f.classList.toggle('run', !st.recording && !!st.caption);
+    $('#footl').textContent = st.recording ? '録音中' : st.saving ? '保存しています' : st.caption ? '稼働中' : '停止中';
+    const err = st.caption_error && !st.recording ? st.caption_error : '';
+    $('#note').textContent = err || note; $('#note').classList.toggle('err', !!err || noteErr);
+    const who = pref.channels.length > 1 ? 'スピーカーとマイクの音声' : pref.channels[0] === 'mic' ? 'マイク音声' : 'スピーカー音声';
+    $('#emptyl').textContent = (st.recording || st.caption) ? `${who}を待機中。` : st.saving ? '録音を保存しています。' : '字幕を準備しています…';
+    sendDrag();
+  }
+  function menu(id, anchor, items) {
+    const m = $(id);
+    const wasOpen = m.classList.contains('open');
+    closeMenus();
+    if (wasOpen) return;   // 同じボタンをもう一度押したら閉じるだけ
+    m.innerHTML = '';
+    items.forEach(it => {
+      if (it === '-') { const d = document.createElement('div'); d.className = 'sep'; m.appendChild(d); return; }
+      if (it.label) { const d = document.createElement('div'); d.className = 'lbl'; d.textContent = it.label; m.appendChild(d); return; }
+      const b = document.createElement('button'); b.innerHTML = `<span class="ck">${it.on ? '✓' : ''}</span>${esc(it.text)}`;
+      b.onclick = (e) => { e.stopPropagation(); closeMenus(); it.fn(); }; m.appendChild(b);
+    });
+    const r = $(anchor).getBoundingClientRect();
+    m.style.left = Math.min(r.left, innerWidth - 190) + 'px'; m.style.bottom = (innerHeight - r.top + 6) + 'px';
+    m.classList.add('open'); sendDrag();
+  }
+  function closeMenus() {
+    const any = document.querySelector('.menu.open');
+    document.querySelectorAll('.menu').forEach(m => m.classList.remove('open'));
+    if (any) sendDrag();
+  }
+  // メニューの外を押したら閉じる(押した瞬間に。開くボタン自身はクリックで開け閉めする)
+  document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.menu') && !e.target.closest('#lang, #tr, #more')) closeMenus();
+  });
+  addEventListener('blur', closeMenus);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
+  document.querySelectorAll('#src button').forEach(b => b.onclick = () => {
+    const ch = b.dataset.ch; const on = pref.channels.includes(ch);
+    if (on && pref.channels.length === 1) return;   // どちらか 1 つは残す
+    pref.channels = on ? pref.channels.filter(c => c !== ch) : [...pref.channels, ch].sort().reverse();
+    partial.system = partial.mic = ''; save(); renderTop(); render(); lease();
+  });
+  $('#lang').onclick = (e) => { e.stopPropagation(); menu('#langmenu', '#lang', Object.entries(LOCALES).map(([k, v]) => ({text: v, on: pref.locale === k, fn: () => { pref.locale = k; save(); renderTop(); lease(); }}))); };
+  $('#tr').onclick = (e) => { e.stopPropagation(); menu('#trmenu', '#tr', [{label: '確定した字幕を AI で訳す'}, ...Object.entries(TR).map(([k, v]) => ({text: v, on: pref.translate === k, fn: () => { pref.translate = k; segs.forEach(s => s.tr = ''); save(); renderTop(); render(); lease(); }}))]); };
+  $('#more').onclick = (e) => { e.stopPropagation(); menu('#moremenu', '#more', [
+    {label: '文字の大きさ'}, {text: '小', on: pref.size === 's', fn: () => { pref.size = 's'; save(); renderTop(); }},
+    {text: '中', on: pref.size === 'm', fn: () => { pref.size = 'm'; save(); renderTop(); }}, {text: '大', on: pref.size === 'l', fn: () => { pref.size = 'l'; save(); renderTop(); }}, '-',
+    {text: '字幕を消す', fn: () => { segs.length = 0; partial.system = partial.mic = ''; render(); }},
+    ...(native ? [{text: '本体のウィンドウを開く', fn: () => host({cmd: 'main'})}] : [])]); };
+  $('#pin').onclick = () => { pref.pin = !pref.pin; save(); host({cmd: 'pin', on: pref.pin}); renderTop(); };
+  $('#ai').onclick = () => { pref.ai = !pref.ai; save(); renderTop(); };
+  $('#rec').onclick = () => post('/api/action', st.recording ? {action: 'stop'} : {action: 'start', mode: 'participant', privacy: 'private'});
+
+  // アプリのウィンドウ: 上の帯の空いている所をつかんでウィンドウを動かせるよう、押せる部品の位置を渡す
+  function sendDrag() {
+    if (!native) return;
+    const rects = [...document.querySelectorAll('.top button')].map(el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
+    // メニューを開いている間は帯でウィンドウを動かさない(押したらメニューを閉じる方を優先)
+    host({cmd: 'drag', height: document.querySelector('.menu.open') ? 0 : $('#top').offsetHeight, rects});
+  }
+  addEventListener('resize', sendDrag);
+
+  // ---- 本体とのやりとり ----
+  const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => {});
+  function lease() { post('/api/action', {action: 'caption', on: true, channels: pref.channels, locale: pref.locale, translate: pref.translate}); }
+  setInterval(lease, 5000);
+  addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/action', JSON.stringify({action: 'caption', on: false})); } catch (e) {} });
+  function applySettings(s) {   // 色と外観(本体の ⚙ で変えるとすぐ届く)
+    const c = (s && s.colors) || {}, root = document.documentElement.style;
+    for (const k of ['accent', 'other', 'self']) if (/^#[0-9a-f]{6}$/i.test(c[k] || '')) root.setProperty('--' + k, c[k]);
+    if (c.accent) {
+      const n = parseInt(String(c.accent).slice(1), 16) || 0;
+      root.setProperty('--accent-ink', (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255 > 0.55 ? '#0b1322' : '#ffffff');
+    }
+    if (s && 'theme' in s) {
+      if (s.theme === 'light' || s.theme === 'dark') document.documentElement.dataset.theme = s.theme; else delete document.documentElement.dataset.theme;
+      host({cmd: 'theme', value: s.theme});   // アプリのウィンドウの外観も合わせる
+    }
+  }
+  fetch('/api/settings').then(r => r.json()).then(applySettings).catch(() => {});
+
+  const handlers = {
+    state(ev) { st = ev; renderTop(); render(); },
+    settings: applySettings,
+    caption(ev) { if (st.recording) return; ev.phase === 'final' ? addFinal(ev.rid, ev.channel, ev.text) : setPartial(ev.channel, ev.text); },
+    partial(ev) { if (st.recording) setPartial(ev.channel, ev.text); },
+    utterance(ev) { texts.set(ev.rid, ev.text); if (st.recording) addFinal(ev.rid, ev.channel, ev.text); },
+    caption_tr(ev) {
+      const s = segs.find(x => x.rid === ev.rid);
+      if (ev.text && s) { s.tr = ev.text; note = ''; noteErr = false; render(); renderTop(); }
+      else if (ev.error) { note = ev.error; noteErr = !/しません/.test(ev.error); renderTop(); }
+    },
+    judgment(ev) { if (ev.trigger) cueCard(ev.rid); },
+    cue_line: cueLine, ranking,
+    session_started() { segs.length = 0; cue = null; $('#cues').innerHTML = '<div class="none">相手の質問を検知すると、ここに回答候補が出ます(録音中)。</div>'; render(); },
+  };
+  function connect() {
+    const es = new EventSource('/events');
+    es.onmessage = (m) => { try { const ev = JSON.parse(m.data); (handlers[ev.type] || (() => {}))(ev); } catch (e) { console.error(e); } };
+    es.onerror = () => { $('#footl').textContent = '再接続しています…'; };
+  }
+  fetch('/api/state').then(r => r.json()).then(s => { st = s; renderTop(); render(); }).catch(() => {});
+  host({cmd: 'pin', on: !!pref.pin});
+  renderTop(); render(); connect(); lease();
+})();
+</script>
+</body>
+</html>

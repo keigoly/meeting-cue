@@ -1,0 +1,18 @@
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+state/
+.claude/
+# 発話ログ・実測ログ(本文を含む)と Swift ビルド成果物
+spikes/logs/
+helpers/macos/stt_helper/stt-helper
+helpers/macos/tap_helper/tap-helper
+*.aiff.bak
+.pytest_cache/
+tests/fixtures/*.aiff
+helpers/macos/hotkey_helper/hotkey-helper
+helpers/macos/overlay_helper/overlay-helper
+helpers/macos/mix_helper/mix-helper
