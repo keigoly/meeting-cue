@@ -35,7 +35,7 @@
 - 結果を確認してから Step 3 へ。
 
 ### Step 3: 周辺の整合性確認と改修
-- `config.example.toml`・README・REQUIREMENTS.md の該当節・`tests/` を合わせる。ホットキーを変えたら README の表と `hotkey_helper` / `overlay_helper` の両方(衝突しないよう ⌃⌥ + P/D/M は hotkey、L/H/R は overlay)。
+- `config.example.toml`・README・REQUIREMENTS.md の該当節・`tests/` を合わせる。ホットキーを変えたら README と docs/USAGE.md の表と `hotkey_helper` / `overlay_helper` の両方(衝突しないよう ⌃⌥ + P/D/M は hotkey、L/H/R は overlay)。
 - 動作確認(合成音声 → 実会議)が終わるまで旧経路は残す。
 
 ## 5. 開発の作法

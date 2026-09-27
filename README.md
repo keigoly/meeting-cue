@@ -1,117 +1,125 @@
+<p align="center"><img src="docs/images/icon.png" width="128" alt="Meeting Cue! のアイコン"></p>
+
 # Meeting Cue!
 
-会議・講演・オンライン会議の音声を手元の Mac でリアルタイムに文字起こしし、相手の発言が「自分への質問」だと判定したら、Obsidian Vault の知識と質問者の意図の読みを添えて、**回答候補**と**こちらから返す逆質問の候補**を即座に出す道具です。
+[![stars](https://img.shields.io/github/stars/keigoly/meeting-cue?style=flat&label=stars&color=3ed6c8)](https://github.com/keigoly/meeting-cue/stargazers)
+[![license](https://img.shields.io/badge/license-MIT-3ed6c8?style=flat)](LICENSE)
+![macOS](https://img.shields.io/badge/macOS-26-000000?style=flat&logo=apple&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python&logoColor=white)
+![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logo=swift&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)
+![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)
+![Claude](https://img.shields.io/badge/Claude-D97757?style=flat&logo=claude&logoColor=white)
 
-- 文字起こしは macOS 26 内蔵の SpeechAnalyzer(オンデバイス・音声はクラウドへ送らない)
-- 判定は Jev(TypeSafe AI の判定専用モデル・約 250 ms)、失敗時はヒューリスティックに縮退
-- 知識は Vault を SQLite FTS5 で索引(形態素解析器なし・検索 1〜3 ms)
-- キュー生成は OpenRouter 経由 Claude(ストリーミング表示・初トークン約 1 秒)
-- **選ぶ係**: 候補を回答 5・逆質問 5 生成し、Jev が基準ごとに採点(約 250 ms)→ 場面と意図の重みで合計 → 上位 3 件に ★(同じ候補でも、選び方を変えるだけで良い答えを選べる)
-- `privacy = "local"` でクラウド呼び出しを全て止められる(文字起こしと知識検索は動き続ける)
+会議や面接で**相手から質問されたら、その場で答えの候補をそっと差し出す** Mac 向けのアプリです。
+会議の音声を Mac の中で文字起こしし、相手の発言が自分への質問だと判定すると、回答候補と逆質問の候補を数秒で出します。音声そのものは Mac の外へ出しません。
 
-設計の正本: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。進め方: [DEVELOPMENT.md](DEVELOPMENT.md)。Phase 0 の実測: [spikes/PHASE0_RESULTS.md](spikes/PHASE0_RESULTS.md)。
+A macOS app that transcribes your meeting on-device and, when someone asks you a question, cues you with answer candidates and follow-up questions within seconds.
 
-## 状態(2026-09-25)
+<p align="center"><img src="docs/images/answers.png" width="860" alt="回答候補の画面"></p>
 
-Phase 0(スパイク)・Phase 1(見える化パイプライン)完了、Phase 3(UX: 最前面パネル・Web UI・ホットキー・深掘り・会議後サマリ)を実装済みで、合成会議で通しで動く(質問 3/3 検出・発話確定→最初のキュー p50 2.3〜2.6 s)。要件定義は 2026-09-25 に確定。残りは実会議での運用試験(Phase 2 の較正を含む)・会議アプリ検知・Windows・公開。
+| 録音中(相手の質問を検知すると、ナギがきっかけを渡します) | ダークモード(録音後の再生と文字起こし) |
+|---|---|
+| ![録音中の画面](docs/images/recording.png) | ![ダークモード](docs/images/dark.png) |
+| **ライブ字幕(録音しなくても字幕・英訳)** | **メニューバー** |
+| ![ライブ字幕](docs/images/caption.png) | <img src="docs/images/menu.png" width="300" alt="メニューバーのパネル"> |
 
-## 使い方(Phase 1・ターミナル表示)
+<sub>写真の会話は、テスト用の合成音声(macOS の読み上げ・`tests/fixtures/make_fixtures.sh`)で作ったもので、実在の会議ではありません。</sub>
 
-```sh
-# 1. Swift ヘルパーをビルド(Xcode Command Line Tools)
-(cd helpers/macos && make)
+## できること
 
-# 2. 設定と鍵
-mkdir -p ~/.meeting-cue && cp config.example.toml ~/.meeting-cue/config.toml   # vault_root を直す
-printf 'OPENROUTER_API_KEY=sk-or-...\n' > ~/.secrets/meeting-cue.env && chmod 600 ~/.secrets/meeting-cue.env
+- **聞く**: 自分(マイク)と相手(会議アプリの音)を分けて、macOS 内蔵の音声認識でリアルタイムに文字起こしします。音声は Mac の外へ送りません
+- **察する**: 相手の発言が「自分への質問」かどうかを、判定専用の AI(Jev)が約 0.25 秒で見分けます
+- **差し出す**: 回答候補 5 つと逆質問 5 つを作り、採点して上位 3 つに ★ を付けます。最初の文字は約 1 秒で出始めます。Obsidian Vault のメモも根拠に使えます
+- **先回り(質問タブ)**: 会話の流れから「今こちらから聞くとよいこと」を先に出します。相手から質問されたら、そちらが最優先です
+- **振り返り**: 録音を波形付きで再生できます。文字起こしの行を押すとその位置から再生し、終わるとサマリを作ります
+- **ライブ字幕**: 録音しなくても、スピーカーやマイクの音声を大きな字幕にします。確定した行を英語 / 日本語に訳せます。全画面の会議の上にも出せます
+- **仕事の会議でも**: 通常は判定と候補づくりのために文字起こしの文を AI に送ります。**LOCAL** にするとクラウドへ一切送りません。「録音と文字起こしだけ」でも使えます
+- **案内役のナギ**: 会議の袖に控えるプロンプターです。場面ごとに一言と表情が変わります(⚙ でオフにできます)
+- **見た目**: ライト / ダーク(システムに合わせる)。基本色・相手・自分の 3 色を変えられます
+- **置き換え辞書**: 音声認識がよく間違える固有名詞を、正しい語に直します
+- **記録の整理**: 書き出し(音声 1 本・文字起こし・サマリ)/ Google Drive へ移動 / 削除
+- **メニューバーに常駐**: ワンクリックで録音できます。アップデートの確認もここから
 
-# 3. Vault の索引(初回は全量。以後は差分)
-uv run --python 3.12 --no-project python -m meetcue.cli index
+## 動作環境
 
-# 4. 前提の検査
-uv run --python 3.12 --no-project python -m meetcue.cli doctor --online
+- macOS 26 以降(内蔵の音声認識 SpeechAnalyzer と、システム音声の取り込みを使います)
+- Xcode Command Line Tools(Swift のヘルパーとアプリをビルドします)
+- Python 3.12([uv](https://docs.astral.sh/uv/) を推奨。追加のパッケージは要りません)
+- 生成 AI の API キー(OpenRouter / Anthropic / OpenAI のどれか)。質問の判定(Jev)には OpenRouter のキーを使います。キーが無くても「録音と文字起こしだけ」で使えます
 
-# 5. 合成音声で通す(テスト)。既定で最前面パネル(overlay)+ ブラウザ用 Web UI(http://127.0.0.1:8765/)が出る
-uv run --python 3.12 --no-project python -m meetcue.cli run --source file:tests/fixtures/meeting_ja.aiff:system --mode participant
-
-# 6. 実会議(マイク=自分 + Zoom の出力=相手)
-uv run --python 3.12 --no-project python -m meetcue.cli run --source mic --source tap:zoom --mode participant --save-vault
-#    Teams なら tap:teams、会議アプリの内部プロセス構成に左右されたくなければ tap-all
-#    仕事の会議(クラウドへ出さない): --privacy local
-#    画面: --ui terminal(ターミナルだけ)/ web(ブラウザで開く)/ overlay(既定・最前面パネル)
-```
-
-### アプリから起動(Mac)
-
-```sh
-packaging/make_mac_app.sh        # ~/Applications/Meeting Cue!.app を作る(swiftc。repo を動かしたら作り直す)
-```
-
-`Meeting Cue!.app` をダブルクリック → **本体のウィンドウ**だけが開きます(Terminal は開きません。本体の `meetcue app` はアプリが裏で動かし、ログは `~/.meeting-cue/logs/app-*.log`)。
-
-- 右上の「録音を開始」→ 題名・自分の立場(参加 / 登壇 / 聴講)・仕事の会議(LOCAL)を選んで開始。音源は `mic` + `tap-all`
-- 録音中: 左に経過時間とマイク / スピーカーの波形、右に「文字起こし / 質問 / 回答」のタブ。相手から質問されると回答タブに件数の印が付く(Jev の判定が最優先。タブは自分で切り替える)。録音の開始画面の題名は Enter では始まらず、「開始」ボタンで始める。「録音を開始」の右の ▾ から**クイック録音**(題名と立場を選ばずにすぐ始める = 会議に参加・題名なし。仕事の会議 LOCAL も)。停止を押すとすぐ録音が止まり、作りかけの回答候補とサマリは「保存しています…」の間に仕上げてから録音後の画面へ移る。
-- 質問タブ: 会話から「今こちらから聞くとよい質問」を先回りで出す(自動は Sonnet・最大 1 分に 1 回 / 「今の話で質問を考える」/ 「深く考える」= Opus)。Jev の採点で上位 3 件に ★。相手から質問されたら質問タブは即座に中断し、回答が終わるまで待つ。「常に手前」で全画面の Zoom の上にも出る。操作メニュー = 一時停止・深掘り・モード(ホットキーも同じ)
-- 録音後: 左の一覧から選ぶと、再生ボタンと波形(クリック、またはつかんで左右に動かすとその位置へ)・上部の「両方 / スピーカー / マイク」・文字起こし(行をクリックでその発言から再生)・回答・サマリ。空白キーで再生/一時停止。題名はクリックするとその場で変えられる(Enter で確定・Esc でやめる)
-- 音声は常に保存(`~/.meeting-cue/sessions/<日時>_<id>/audio/{mic,system}.m4a`・1 チャネル 1 時間約 20 MB)。保存しないときは `--no-record`
-- 終了: ウィンドウを閉じる(録音中なら正規に止めてサマリを作ってから終わる)。二重起動は起動前に止める
-- 相手側の音が 30 秒届かないと警告を出す(別の機器で再生した音は tap に入らない)
-- 色と外観: 既定はナギの色(基本 ミント・相手の発言 空色・自分の発言 藤紺)。左上の ⚙ から 3 色と外観(システムに合わせる / ライト / ダーク)を変えられる(`~/.meeting-cue/ui.json` に保存・開いている画面とメニュー・ライブ字幕・アップデートの画面すべてに反映)
-- 設定(⚙): **AI** = 回答候補・質問タブ・サマリを AI で作る / 相手の質問を判定する(Jev)のオン・オフ(両方オフ = **録音だけ**・外へ何も送らない)、生成 AI の接続先と **API キー**(Mac のキーチェーンに保存・画面に出さない・「確認」は各社の無料の認証確認だけ。接続先は OpenRouter / Anthropic 直接 / OpenAI 直接。OpenAI はキーのモデル一覧から選び、価格を入れると月の予算上限に数える。Jev はどの接続先でも OpenRouter のキー)/ **Google Drive** = 移動を使うか・既定のアカウント / **表示** = 色・ナギ。はじめて起動したとき(キーも設定も無いとき)は案内が出る(⚙ の「はじめの案内」でもう一度)。既存の `~/.secrets/meeting-cue.env` のキーもそのまま使える
-- **開発者向け: 自分の Claude の月額プランで動かす(既定オフ・自己責任)**: `~/.meeting-cue/config.toml` の `[llm]` に `subscription_cli = true` を書くと、接続先に「Claude サブスク(Claude Code 経由・開発者向け)」が出る。この Mac でログイン済みの Claude Code(`claude -p`)を呼ぶだけで、アプリは認証情報に触れない。録音中は Claude Code を 2 つ先に起動して待たせるので、最初の候補までの時間は API とほぼ同じ(実測 2.2〜2.3 s)。Anthropic は他社アプリが Claude.ai のログインを提供すること・利用者の代わりにプランで通信することを禁止しているため、公開版の利用者向けには出さず、**自分の用途だけ**に使う([Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)・[Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance))
-- ナギの台詞: 案内の文言(待機中・録音の開始/停止・質問の検知・回答候補・質問タブ・相手の声が届かない警告)を、アイコンのキャラクター「ナギ」の言葉で出す。⚙ の「ナギの台詞で案内する」でオン/オフ(既定はオン・同じ `ui.json`)
-- マイクとシステム音声録音の許可は **Meeting Cue!** に付く(初回の録音開始でダイアログ。`make_mac_app.sh` で作り直すと再度求められることがある)
-- メニューバー(画面上部のアイコン・録音中は右上に赤い点): 押すと角丸のパネルが開く。頭に状態(待機中 / 録音中の経過時間 / 保存中)、録音を開始と LOCAL で録音の 2 枚のタイル(録音中は停止のタイル)/ ライブ字幕 / 記録のフォルダを開く / ログイン時に起動(スイッチ)/ 設定 ⌘, ・更新を確認・終了 ⌘Q。外を押すか Esc で閉じる。本体のウィンドウは Dock のアイコンか「設定を開く」から
-- ライブ字幕: **録音していなくても**スピーカー / マイクの音声を字幕にする(保存しない)。下の操作台でスピーカー・マイクの切替 / 言語(日本語・English)/ **翻訳**(確定した字幕を生成 AI で日本語・英語へ。Claude サブスクなら Sonnet。LOCAL の録音中と AI オフでは訳さない)/ 文字の大きさ / 常に手前(全画面の会議の上にも出る)/ ✦ 回答候補(録音中の最新の質問と ★)/ 録音の開始・停止。録音を始めると録音の字幕に切り替わる。帯の空いている所をつかむと動かせる。⌃⌥L で固定⇄移動・⌃⌥H で表示/非表示
-- 置き換え辞書(⚙): 音声認識がよく間違える固有名詞を正しい語に置き換える(1 行 = `正しい語|誤り|誤り…`・`~/.meeting-cue/replacements.txt`)。記録・質問の判定・回答候補・サマリ・書き出し・画面とライブ字幕の途中表示に効く。置き換える前の文は transcript の `raw` に残る
-- アップデートを確認: 手元の repo に動いている版より新しいコミットがあれば、変更内容(コミットの件名と説明)と「このバージョンはスキップ / 終了時にインストール / インストールして再起動」を出す。起動の 30 s 後と 30 分ごとにも確かめ、新しい版は一度だけ知らせる(録音中・スキップした版は出さない)。「今後は自動で行う」なら知らせずに終了時に反映。最新ならメニューから押したときだけ「最新の版です」(画面の部品 = Swift が変わっていれば作り直してから開き直す・`packaging/update_app.sh`・記録は `~/.meeting-cue/logs/update-*.log`)
-- 一覧の記録を右クリック: **録音を書き出す…**(保存先を選ぶ → `<題名> <日時>/` に 音声 1 本の .m4a・文字起こし・サマリ)/ **Google Drive に移動…**(Google Drive for desktop の `マイドライブ/Meeting Cue!/` へ移す・一覧に ☁ 付きで残りそのまま開ける・LOCAL の記録は移せない)/ **削除**(確認してゴミ箱へ)
-- ウィンドウを閉じてもメニューバーに残る(録音も続く)。終了はメニューの「Meeting Cue! を終了」か ⌘Q(録音中なら保存とサマリを待ってから終わる)
-- デバッグ(Terminal にログを出す): `packaging/launch.sh open app`。従来の起動のしかた(リハーサル等)は `packaging/launch.sh open rehearsal`。詳細は [packaging/DEVELOPMENT.md](packaging/DEVELOPMENT.md)
+## セットアップ
 
 ```sh
-uv run --python 3.12 --no-project python -m meetcue.cli app            # 手で起動する場合(--no-window でブラウザ用)
+git clone https://github.com/keigoly/meeting-cue.git
+cd meeting-cue
+(cd helpers/macos && make)        # Swift のヘルパーをビルド
+packaging/make_mac_app.sh         # ~/Applications/Meeting Cue!.app を作る
 ```
 
-停止は Ctrl-C。終了時に `summary.md`(要約・決定・宿題・質問とキュー・文字起こし)を作り、`--save-vault` なら Vault の `01_Projects/Meeting Cue/Sessions/` にも置きます(機微モードでは題名だけ)。記録は `~/.meeting-cue/sessions/<日時>_<id>/`(transcript / judgments / cues / metrics の JSONL)。`python -m meetcue.cli report` で所要 ms の p50/p90 が出ます。
+`Meeting Cue!.app` を開くと、はじめの案内で使い方(AI で支援する / 録音と文字起こしだけ)と API キーを設定できます。キーは Mac のキーチェーンに保存します。
+最初の録音で、マイクとシステム音声録音の許可を求められます。
 
-### ホットキー(システム全体・Accessibility 許可不要)
+### Obsidian Vault を知識として使う(任意)
+
+```sh
+mkdir -p ~/.meeting-cue && cp config.example.toml ~/.meeting-cue/config.toml   # vault_root を自分の Vault に
+uv run --python 3.12 --no-project python -m meetcue.cli index                    # 索引を作る(以後は差分だけ)
+```
+
+### 動作の確認(任意)
+
+```sh
+tests/fixtures/make_fixtures.sh                                            # 合成音声のテスト素材を作る
+uv run --python 3.12 --no-project python -m meetcue.cli doctor --online   # 前提の検査
+uv run --python 3.12 --no-project --with pytest python -m pytest -q       # 試験
+```
+
+画面ごとの操作・設定・記録の場所・ターミナルからの使い方は [docs/USAGE.md](docs/USAGE.md) にあります。
+
+## キー操作
 
 | キー | 動作 |
 |---|---|
-| ⌃⌥P | 一時停止 / 再開(文字起こしは続く。判定と生成を止める。自分が長く話す間に) |
-| ⌃⌥D | 今のを深掘り(直近の相手の発話を強制的にキュー生成) |
-| ⌃⌥M | モード切替(参加者 → 登壇者 → 聴講) |
-| ⌃⌥L | パネルを固定(クリック透過)⇄ 移動可 |
-| ⌃⌥H | パネルの表示 / 非表示 |
-| ⌃⌥R | パネルの再読込 |
-
-パネルの候補は「⧉」でクリップボードにコピーできます。★ は Jev の採点で上位の候補です。
-
-## 権限(macOS)
-
-- マイク: `stt-helper` の初回起動でダイアログ
-- システム音声録音: `tap-helper` の初回 `AudioHardwareCreateProcessTap` で System Settings > Privacy & Security に出る。未許可だと `tap_create` が失敗する(`tap-helper --list` で音声を出しているプロセスを確認できる)
-- 罠: 起動直前に音量を変える(`osascript set volume` 等)と Core Audio の再構成で `device_start` が 80 秒以上待たされることがある(2026-09-25 実測)。会議アプリを起動し、音量を決めてから `meetcue run` する
+| ⌃⌥P | 一時停止 / 再開(文字起こしは続け、判定と生成を止める) |
+| ⌃⌥D | 今の発言を深掘り(直近の相手の発言で候補を作る) |
+| ⌃⌥M | 立場の切り替え(会議に参加 → 登壇・発表 → 講演を聴く) |
+| ⌃⌥L | ライブ字幕を固定(クリックが下へ抜ける)⇄ 動かせる |
+| ⌃⌥H | ライブ字幕の表示 / 非表示 |
+| ⌃⌥R | 画面の再読み込み |
+| Space | 録音後の再生 / 一時停止 |
+| ⌘, / ⌘Q | 設定を開く / 終了(録音中なら保存してから終わる) |
 
 ## 構成
 
-```
-meetcue/            Python 本体(uv・依存ゼロ)
-  stt_reader.py     ヘルパーの JSONL 受信(Mac / 将来の Windows 共通の契約)
-  segmenter.py      ポーズ検出・強制 finalize・文分割・相づち除去
-  judge/            jev.py(判定 API・stdlib)/ heuristic.py(縮退)
-  knowledge/        index.py(FTS5・文字 bigram)
-  cues/             openrouter.py(ストリーミング)/ prompts.py(行書式)
-  judge/selector.py 選ぶ係(候補を Jev が基準別採点 → 重み付き合計で並べ替え)
-  pipeline.py       オーケストレーター / cli.py / session.py / ledger.py / summary.py
-  ui/terminal.py    ターミナル表示 / ui/web.py(stdlib HTTP + SSE)/ ui/static/index.html(画面)
-helpers/macos/      Swift: stt_helper(マイク・--file)/ tap_helper(process tap)/ hotkey_helper / overlay_helper(NSPanel + WKWebView)/ mix_helper(書き出しの音声を 1 本に重ねる)/ Makefile
-packaging/          起動ラッパー: launch.sh(Terminal で起動)/ make_mac_app.sh(Meeting Cue!.app を作る)
-spikes/             Phase 0 の計測スクリプトと結果
-tests/              pytest(uv run --with pytest python -m pytest)
-```
+| ファイル | 役割 |
+|---|---|
+| `meetcue/app.py` | アプリの本体(録音の開始・停止・設定・記録の一覧) |
+| `meetcue/pipeline.py` | 文字起こし → 質問の判定 → 候補の生成 → 採点の流れ |
+| `meetcue/segmenter.py` | 発言の区切り(間の長さと文末の形で確定を決める) |
+| `meetcue/judge/` | 質問の判定(Jev・つながらないときの簡易判定)と、候補の採点(選ぶ係) |
+| `meetcue/cues/` | 生成 AI への接続(OpenRouter / Anthropic / OpenAI)と指示文 |
+| `meetcue/knowledge/` | Obsidian Vault の索引と検索(SQLite FTS5) |
+| `meetcue/captions.py` | ライブ字幕と翻訳 |
+| `meetcue/ui/` | 画面(標準ライブラリの HTTP + SSE と、ビルド不要の HTML) |
+| `helpers/macos/` | Swift のヘルパー(音声認識・会議アプリの音の取り込み・ホットキー・ウィンドウとメニューバー) |
+| `packaging/` | アプリの作成と起動・アイコン |
+| `tests/`・`eval/` | 試験と、判定・文字起こしの評価 |
+
+設計の正本は [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)、進め方は [DEVELOPMENT.md](DEVELOPMENT.md)、初期の実測は [spikes/PHASE0_RESULTS.md](spikes/PHASE0_RESULTS.md) にあります。
+
+## 制限
+
+- 今は macOS 専用です(Windows 版を予定しています)
+- 会議の言語は日本語が中心です(ライブ字幕は英語にも対応しています)
+- 相手の声は、この Mac で鳴っている会議アプリの音から取ります。スマートフォンなど別の機器で鳴らした音は入りません
+- 音声認識は固有名詞に弱いことがあります(置き換え辞書で直せます)
+- 「アップデートを確認」は、手元の clone より新しいコミットがあるかを見ます(GitHub のリリースには未対応です)
 
 ## ライセンス
 
-MIT([LICENSE](LICENSE))。個人のパス・API キー・Vault 本文・発話の記録は repo に入れない。
+MIT ライセンスです([LICENSE](LICENSE))。
+
+macOS は Apple Inc. の商標です。Zoom・Google Meet・Microsoft Teams・Obsidian・Claude・ChatGPT などの名称は、それぞれの権利者の商標です。本プロジェクトはこれらの企業とは関係ありません。
+
+アイコンとキャラクター「ナギ」の絵は、NovelAI で作成したものです。

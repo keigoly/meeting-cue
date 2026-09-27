@@ -30,7 +30,7 @@ preset: `app`(既定)/ `participant` / `presenter` / `audience` / `work`(`--priv
 
 1. **見える化**: アプリの不具合はまず `~/.meeting-cue/logs/app-*.log`(本体の出力)を見る。Terminal で見たいときは `packaging/launch.sh open app`。`MEETCUE_DRYRUN=1 packaging/launch.sh run <preset>` で実際に流すコマンドを見る。`launch.sh open <preset>` が作る `~/.meeting-cue/launch/meetcue-<preset>.command` の中身を見る。前提の問題は `~/.meeting-cue/launch/doctor.log`。
 2. **最小改修**: 起動引数の問題は `launch.sh` の `preset_args` / `SOURCES` だけを直す。本体の不具合は `meetcue/` 側の DEVELOPMENT.md(ルート)の手順に回す。
-3. **周辺整合**: preset を変えたら README の「アプリから起動」を合わせる。ウィンドウ側(`overlay_helper/main.swift`)や Info.plist を変えたら `make_mac_app.sh` で app を作り直し、許可のダイアログが出直すことを案内する。
+3. **周辺整合**: preset を変えたら docs/USAGE.md の「アプリ(Meeting Cue!.app)」を合わせる。ウィンドウ側(`overlay_helper/main.swift`)や Info.plist を変えたら `make_mac_app.sh` で app を作り直し、許可のダイアログが出直すことを案内する。
 
 ## 4. 関連ドキュメント
 

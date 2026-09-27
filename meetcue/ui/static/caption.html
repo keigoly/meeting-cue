@@ -154,6 +154,7 @@
   try { pref = Object.assign(pref, JSON.parse(localStorage.getItem('meetcue-caption') || '{}')); } catch (e) {}
   const save = () => { try { localStorage.setItem('meetcue-caption', JSON.stringify(pref)); } catch (e) {} };
   let st = {};
+  let stFromEvents = false;   // 本体からの state が先に届いたら、後から返った /api/state(古い)で上書きしない
   let note = '', noteErr = false;
 
   // ---- 字幕 ----
@@ -321,7 +322,7 @@
   fetch('/api/settings').then(r => r.json()).then(applySettings).catch(() => {});
 
   const handlers = {
-    state(ev) { st = ev; renderTop(); render(); },
+    state(ev) { stFromEvents = true; st = ev; renderTop(); render(); },
     settings: applySettings,
     caption(ev) { if (st.recording) return; ev.phase === 'final' ? addFinal(ev.rid, ev.channel, ev.text) : setPartial(ev.channel, ev.text); },
     partial(ev) { if (st.recording) setPartial(ev.channel, ev.text); },
@@ -340,7 +341,7 @@
     es.onmessage = (m) => { try { const ev = JSON.parse(m.data); (handlers[ev.type] || (() => {}))(ev); } catch (e) { console.error(e); } };
     es.onerror = () => { $('#footl').textContent = '再接続しています…'; };
   }
-  fetch('/api/state').then(r => r.json()).then(s => { st = s; renderTop(); render(); }).catch(() => {});
+  fetch('/api/state').then(r => r.json()).then(s => { if (stFromEvents) return; st = s; renderTop(); render(); }).catch(() => {});
   host({cmd: 'pin', on: !!pref.pin});
   renderTop(); render(); connect(); lease();
 })();
