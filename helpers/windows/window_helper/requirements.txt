@@ -1,0 +1,8 @@
+# Windows のアプリ用の仮想環境(~/.meeting-cue/app-venv)に入れるもの: ウィンドウのヘルパー(pywebview・WebView2)。
+# 本体(meetcue)は同じ環境の python で動くが、ここのパッケージは import しない(標準ライブラリだけ・REQUIREMENTS §7)。
+# packaging\windows\setup.ps1 が uv で入れる。2026-09-27 keigoly様 決定(ウィンドウは pywebview)。
+pywebview==6.2.1
+pythonnet==3.1.0
+clr-loader==0.3.1
+bottle==0.13.4
+proxy-tools==0.1.0

@@ -15,9 +15,12 @@ import asyncio
 import dataclasses
 import json
 import re
+import os
 import signal
 import subprocess
+import sys
 import time
+import tomllib
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -26,7 +29,7 @@ from .config import Config
 from .metrics import Metrics
 from . import providers, secrets
 from .cues import claude_cli, llm, openai_direct
-from .pipeline import Pipeline, Source
+from .pipeline import Pipeline, Source, helper_hint
 from .replacements import Replacer
 from .secrets import openrouter_key
 from .session import Session
@@ -56,6 +59,14 @@ HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 REPO = Path(__file__).resolve().parents[1]
 # アップデートの変更内容に出さない本文の行(ファイル名・調査の段・試験の記録)
 _TECH_LINE = re.compile(r"\.(py|swift|html|sh|md|toml)\b|^Step \d|^確認|^試験|^実測")
+
+
+def _rebuild_paths() -> tuple[str, ...]:
+    """作り直しが要る場所(更新の約束 update.toml の [mac] rebuild_paths・更新係と同じ)。無ければ従来の決まり。"""
+    try:
+        return tuple(tomllib.loads((REPO / "update.toml").read_text(encoding="utf-8"))["mac"]["rebuild_paths"])
+    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError):
+        return ("helpers/macos/", "packaging/")
 
 
 def _git(*args: str) -> str:
@@ -147,13 +158,18 @@ class App:
         self.web.stop()
 
     async def _spawn_window(self) -> None:
-        exe = self.cfg.helpers_dir / "overlay_helper" / "overlay-helper"
-        if not exe.exists():
-            self.term.error(f"ウィンドウの helper が無い: {exe}(helpers/macos で make)。ブラウザで {self.web.url} を開いてください")
+        if sys.platform == "win32":   # pywebview のウィンドウのヘルパー(アプリ用の仮想環境・FR-12)。診断はアプリのログへ
+            argv = [str(self.cfg.window_python), str(self.cfg.helpers_dir / "window_helper" / "window_helper.py")]
+            stderr = None
+        else:
+            argv = [str(self.cfg.helpers_dir / "overlay_helper" / "overlay-helper")]
+            stderr = asyncio.subprocess.DEVNULL
+        if not all(Path(a).exists() for a in argv):
+            self.term.error(f"ウィンドウの helper が無い: {argv[-1]}({helper_hint()})。ブラウザで {self.web.url} を開いてください")
             return
         self._window_proc = await asyncio.create_subprocess_exec(
-            str(exe), "--window", "--url", self.web.url, stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            *argv, "--window", "--url", self.web.url, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL, stderr=stderr)
         asyncio.create_task(self._watch_window())
 
     async def _watch_window(self) -> None:
@@ -204,6 +220,8 @@ class App:
         elif name == "quit":
             if self._shutdown:
                 self._shutdown.set()
+        elif name == "update_check":   # 更新係(packaging/updater)が新しい版を fetch した → ホストが /api/state で見て確認する
+            self.web.set_state(update_nudge=int(time.time() * 1000))
         elif name == "top":
             asyncio.ensure_future(self._window_cmd("top " + ("on" if body.get("on") else "off")))
             self.web.set_state(top=bool(body.get("on")))
@@ -360,13 +378,27 @@ class App:
         return target, why
 
     # ---- アップデートを確認(2026-09-27): 手元の repo に、動いている版より新しいコミットがあるか ----------------
+    def _update_target(self, head: str) -> tuple[str, str]:
+        """入れる版(段 2): 実行用ツリー(branch stable)なら更新係が fetch した origin/stable、開発用ツリーなら HEAD。
+        更新係が巻き戻した版(<app_dir>/updater/bad)は出さない。戻り値 = (入れる版, 止めた版)。"""
+        if not head or _git("rev-parse", "--abbrev-ref", "HEAD") != "stable":
+            return head, ""
+        up = _git("rev-parse", "--verify", "-q", "refs/remotes/origin/stable")
+        if not up or up == head or _git("merge-base", head, up) != head:   # fast-forward できるときだけ
+            return head, ""
+        try:
+            bad = (self.cfg.app_dir / "updater" / "bad").read_text(encoding="utf-8").split()
+        except OSError:
+            bad = []
+        return (head, up) if up in bad else (up, "")
+
     def _version(self, app_commit: str) -> dict:
-        head = _git("rev-parse", "HEAD")
+        head, blocked = self._update_target(_git("rev-parse", "HEAD"))
         run = self._boot_commit
         base = app_commit if app_commit and _git("cat-file", "-t", app_commit) == "commit" else run
         subjects = _git("log", "--format=%h %s", f"{run}..{head}").splitlines() if run and head and run != head else []
         changed = _git("diff", "--name-only", f"{base}..{head}").splitlines() if base and head and base != head else []
-        rebuild = any(f.startswith(("helpers/macos/", "packaging/")) for f in changed)
+        rebuild = any(f.startswith(_rebuild_paths()) for f in changed)
         # 変更内容(2026-09-27 アップデートの画面): 件名 = 太字の見出し・本文の 1 行目 = 説明
         since = base if rebuild else run
         notes = []
@@ -382,6 +414,7 @@ class App:
                 "subjects": subjects[:8], "notes": notes[:12], "rebuild": rebuild,
                 "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
                 "date": _git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M", head),
+                "blocked": blocked[:7],
                 "recording": bool(self._task and not self._task.done())}
 
     def _file_route(self, path: str):
@@ -504,7 +537,10 @@ class App:
         url = providers.KEY_PAGES.get(str(body.get("page") or ""))
         if not url:
             return 400, {"error": "unknown page"}
-        subprocess.run(["open", url], check=False)
+        if sys.platform == "win32":
+            os.startfile(url)   # 既定のブラウザ
+        else:
+            subprocess.run(["open", url], check=False)
         return 200, {"ok": True}
 
     # ---- 記録の置き場(Mac + Google Drive)と右クリックの操作 -------------------------------------
@@ -515,8 +551,19 @@ class App:
         return [self.cfg.sessions_root, *(a["root"] for a in self._drive_accounts())]
 
     def _choose_folder(self) -> Path | None:
-        """保存先のフォルダを選ぶ(osascript の choose folder・アプリでもブラウザでも出る)。キャンセルは None。"""
-        script = ('tell me to activate\n'
+        """保存先のフォルダを選ぶ(osascript の choose folder・アプリでもブラウザでも出る)。キャンセルは None。
+        Windows は PowerShell の FolderBrowserDialog(手前に出すため TopMost の親を付ける)。"""
+        if sys.platform == "win32":
+            ps = ("Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+                  "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                  "$d.Description = '録音を書き出す場所を選んでください'; "
+                  "$d.SelectedPath = Join-Path $env:USERPROFILE 'Downloads'; "
+                  "$o = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}; "
+                  "if ($d.ShowDialog($o) -eq 'OK') { $d.SelectedPath }")
+            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, timeout=600)
+            out = r.stdout.decode("utf-8", "replace").strip()
+            return Path(out) if r.returncode == 0 and out else None
+        script =('tell me to activate\n'
                   'POSIX path of (choose folder with prompt "録音を書き出す場所を選んでください" '
                   'default location (path to downloads folder))')
         r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=600)
@@ -533,9 +580,16 @@ class App:
                 dest = Path(body["dest"]).expanduser() if body.get("dest") else self._choose_folder()
                 if dest is None:
                     return 200, {"ok": False, "cancelled": True}
-                res = library.export_session(self._roots(), sid, dest, self.cfg.helpers_dir / "mix_helper" / "mix-helper")
-                if not body.get("dest"):
-                    subprocess.run(["open", "-R", res["path"]], check=False)   # Finder で書き出した場所を見せる
+                if sys.platform == "win32":   # PyAV で重ねる(STT ヘルパー専用の仮想環境)
+                    mix = [str(self.cfg.stt_python), str(self.cfg.helpers_dir / "mix_helper" / "mix_helper.py")]
+                else:
+                    mix = self.cfg.helpers_dir / "mix_helper" / "mix-helper"
+                res = library.export_session(self._roots(), sid, dest, mix)
+                if not body.get("dest"):   # 書き出した場所を見せる(Finder / エクスプローラー)
+                    if sys.platform == "win32":
+                        subprocess.run(["explorer", f"/select,{res['path']}"], check=False)
+                    else:
+                        subprocess.run(["open", "-R", res["path"]], check=False)
             elif op == "drive":
                 if not self.ui_settings()["drive"]:
                     return 409, {"error": "設定で Google Drive を使わない設定になっています"}

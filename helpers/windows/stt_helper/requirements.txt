@@ -1,0 +1,13 @@
+# Windows の STT ヘルパー専用の仮想環境(~/.meeting-cue/stt-venv)に入れるもの。本体(meetcue)は標準ライブラリだけ(REQUIREMENTS §7)。
+# packaging\windows\setup.ps1 が uv で入れる。版を上げたら spikes/WINDOWS_STT.md の計測で精度と遅れが落ちないことを確かめる。
+# CUDA の部品(nvidia-*)は利用者の手元で PyPI から取る(こちらで再配布しない)。
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+onnxruntime==1.30.0
+av==18.1.0
+numpy==2.5.3
+huggingface-hub==1.33.0
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.26.0.51
+# 取り込み(マイクと、出力機器のループバック)。2026-09-27 keigoly様 決定(REQUIREMENTS §7)
+pyaudiowpatch==0.2.12.8

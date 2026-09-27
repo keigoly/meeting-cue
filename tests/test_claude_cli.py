@@ -4,6 +4,7 @@
 """
 import json
 import stat
+import sys
 import time
 
 import pytest
@@ -13,6 +14,7 @@ from meetcue.app import App
 from meetcue.config import Config
 from meetcue.cues import claude_cli, llm
 
+WIN_SKIP = "偽の実行ファイルが #! のスクリプト(Mac・Linux の書き方)なので Windows では動かない。Windows 版の開発で .cmd の偽物に直す(Vault Windows_Brief.md)"
 FAKE = r'''#!/usr/bin/env python3
 import json, os, sys, time
 log = os.environ["FAKE_CLAUDE_LOG"]
@@ -44,6 +46,8 @@ else:
 
 @pytest.fixture
 def fake(tmp_path, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip(WIN_SKIP)
     cli = tmp_path / "claude"
     cli.write_text(FAKE, encoding="utf-8")
     cli.chmod(cli.stat().st_mode | stat.S_IEXEC)

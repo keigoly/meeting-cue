@@ -1,6 +1,7 @@
 """一覧の右クリック: Mac + Google Drive の一覧・書き出し・Google Drive へ移動・ゴミ箱(2026-09-26)。"""
 import json
-import stat
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -33,17 +34,17 @@ def _session(root, sid, *, title="定例", privacy="private", audio=True, summar
 
 
 def _fake_mix(tmp_path, ok=True):
-    """mix-helper の代わり: 受け取った引数を args.json に残し、--out に 1 バイト書く。"""
-    p = tmp_path / "mix-helper"
+    """mix-helper の代わり: 受け取った引数を args.json に残し、--out に 1 バイト書く。
+    [python, スクリプト] の引数の並びで渡す(2026-09-27: Windows の書き出しと同じ形。#! の実行ファイルは Windows で動かないため)。"""
+    p = tmp_path / "mix_helper_fake.py"
     log = tmp_path / "args.json"
     body = ('import json, sys\n'
-            f'json.dump(sys.argv[1:], open({str(log)!r}, "w"))\n'
+            f'json.dump(sys.argv[1:], open({str(log)!r}, "w", encoding="utf-8"), ensure_ascii=False)\n'
             'a = sys.argv[1:]; out = a[a.index("--out") + 1]\n'
             + ('open(out, "wb").write(b"x"); print(json.dumps({"ok": True, "ms": 5, "duration_ms": 31000, "inputs": 2}))\n' if ok
                else 'print(json.dumps({"ok": False, "error": "boom"})); sys.exit(1)\n'))
-    p.write_text(f"#!/usr/bin/env python3\n{body}", encoding="utf-8")
-    p.chmod(p.stat().st_mode | stat.S_IEXEC)
-    return p, log
+    p.write_text(body, encoding="utf-8")
+    return [sys.executable, str(p)], log
 
 
 def test_list_merges_mac_and_drive(tmp_path):
@@ -103,11 +104,11 @@ def test_export_writes_audio_transcript_summary(tmp_path):
     _session(mac, SID_A, title="定例: 9 月")
     mix, log = _fake_mix(tmp_path)
     res = library.export_session(mac, SID_A, out, mix)
-    folder = out / res["path"].split("/")[-1]
+    folder = out / Path(res["path"]).name
     assert folder.parent == out and folder.name.startswith("定例 9 月 ")          # : は使わない
     assert res["files"] == ["音声.m4a", "文字起こし.md", "サマリ.md"]
-    args = json.loads(log.read_text())
-    assert args[args.index("--out") + 1].endswith("/音声.m4a")
+    args = json.loads(log.read_text(encoding="utf-8"))
+    assert Path(args[args.index("--out") + 1]) == folder / "音声.m4a"
     ins = [args[i + 1] for i, a in enumerate(args) if a == "--in"]
     assert any(x.endswith("system.m4a@0.000") for x in ins) and any(x.endswith("mic.m4a@0.350") for x in ins)   # 頭合わせ
     md = (folder / "文字起こし.md").read_text(encoding="utf-8")

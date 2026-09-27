@@ -33,12 +33,36 @@ func diag(_ fields: [String: Any]) {
     f["t_ms"] = Int(Date().timeIntervalSince1970 * 1000)
     if let d = try? JSONSerialization.data(withJSONObject: f, options: [.sortedKeys]),
        let s = String(data: d, encoding: .utf8) {
-        FileHandle.standardError.write(Data((s + "\n").utf8))
+        let line = Data((s + "\n").utf8)
+        FileHandle.standardError.write(line)
+        gHostLog?.write(line)
     }
+}
+
+/// ホストの記録(2026-09-27 段 2 の Step 1): アプリとして起動すると stderr の行き先が無く、アップデートの確認や再起動が
+/// どこにも残らなかった。ホストのときだけ <MEETCUE_HOME or ~/.meeting-cue>/logs/host-<日付>.jsonl にも書く(直近 14 個)
+var gHostLog: FileHandle?
+
+func openHostLog() {
+    let home = ProcessInfo.processInfo.environment["MEETCUE_HOME"] ?? (NSHomeDirectory() + "/.meeting-cue")
+    let dir = URL(fileURLWithPath: home).appendingPathComponent("logs")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let fmt = DateFormatter()
+    fmt.locale = Locale(identifier: "en_US_POSIX")
+    fmt.dateFormat = "yyyyMMdd"
+    let path = dir.appendingPathComponent("host-\(fmt.string(from: Date())).jsonl").path
+    let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)   // O_APPEND: 別のスレッドの行と混ざらない
+    if fd >= 0 { gHostLog = FileHandle(fileDescriptor: fd, closeOnDealloc: true) }
+    let old = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+        .filter { $0.hasPrefix("host-") && $0.hasSuffix(".jsonl") }.sorted().dropLast(14)
+    for name in old { try? FileManager.default.removeItem(at: dir.appendingPathComponent(name)) }
 }
 
 var gOverlay: Overlay?
 var gHost: Host?
+/// 自動のアップデートで開き直したとき(2026-09-27 段 2・--relaunch bg|hidden): フォーカスを奪わない。
+/// bg = 開いていたウィンドウを後ろに出す / hidden = 閉じていたウィンドウは出さない(Dock かメニューバーから開く)
+var gRelaunch = ""
 
 /// 外観(2026-09-27 keigoly様: ダークモードも)。auto = macOS に合わせる / light / dark。各ウィンドウは外観を持たずアプリに従う。
 func applyAppTheme(_ t: String?) {
@@ -145,9 +169,14 @@ final class Overlay: NSObject, NSWindowDelegate {
             panel.delegate = self
             if let url { web.load(URLRequest(url: url)) }
             setTop(top)
-            panel.makeKeyAndOrderFront(nil)
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            diag(["phase": "shown", "mode": "window", "url": url?.absoluteString ?? "",
+            switch gRelaunch {
+            case "hidden": panel.orderOut(nil)
+            case "bg": panel.orderBack(nil)
+            default:
+                panel.makeKeyAndOrderFront(nil)
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+            diag(["phase": "shown", "mode": "window", "relaunch": gRelaunch, "url": url?.absoluteString ?? "",
                   "frame": [Int(panel.frame.minX), Int(panel.frame.minY), Int(panel.frame.width), Int(panel.frame.height)]])
             return
         }
@@ -660,7 +689,7 @@ struct UpdateView: View {
                 }
                 Button { model.auto.toggle() } label: {   // 標準の Toggle は画像に描けないので、メニューと同じスイッチ
                     HStack {
-                        Text("自動で更新する(終了するときに反映)").font(.system(size: 12.5))
+                        Text("自動で更新する(使っていない間に入れ替え)").font(.system(size: 12.5))
                         Spacer()
                         MenuSwitch(on: model.auto, tint: info.accent)
                     }
@@ -830,7 +859,7 @@ final class Host: NSObject, NSApplicationDelegate {
     }
 
     private func childExited(_ status: Int32) {
-        diag(["phase": "host_child_exit", "status": status])
+        diag(["phase": "host_child_exit", "status": status, "quitting": quitting])   // quitting = 終了の操作で止めた(落ちたのではない)
         child = nil
         if quitting {
             NSApplication.shared.reply(toApplicationShouldTerminate: true)
@@ -930,7 +959,13 @@ final class Host: NSObject, NSApplicationDelegate {
             let rec = (obj["recording"] as? Bool) ?? false
             let sav = (obj["saving"] as? Bool) ?? false
             let started = obj["started_ms"] as? Double
+            let nudge = obj["update_nudge"] as? Double ?? 0
             DispatchQueue.main.async {
+                if let seen = self.nudgeSeen, seen != nudge {   // 更新係の「今すぐ確認して」
+                    diag(["phase": "update_nudge"])
+                    self.checkUpdate(manual: false)
+                }
+                self.nudgeSeen = nudge
                 let changed = rec != self.recording || sav != self.saving || started != self.startedMs
                 self.saving = sav
                 self.startedMs = started
@@ -1116,21 +1151,29 @@ final class Host: NSObject, NSApplicationDelegate {
     }
 
     // ---- アップデートを確認(2026-09-27): 手元の repo に、動いている版より新しいコミットがあるか ----
-    // メニューから(manual)は必ず画面を出す(最新なら「最新の版です」)。起動の 30 s 後と 30 分ごとの確認(自動)は、新しい版が
-    // あって録音中でなく、スキップした版でも一度出した版でもないときだけ出す。「自動で行う」なら出さずに終了時に反映する
+    // メニューから(manual)は必ず画面を出す(最新なら「最新の版です」)。起動の 30 s 後と 1 分ごと・更新係の合図での確認は、
+    // 新しい版があって録音中でなく、スキップした版でも一度出した版でもないときだけ出す。「自動で行う」なら出さずに、
+    // 空いていて前面でないときに裏で再起動する(段 2・handleUpdate)
     static let skipKey = "meetcueSkipHead"
+    static let autoRestartKey = "meetcueAutoRestartHead"
     private let updateModel = UpdateModel()
     private var updateWin: NSWindow?
     private var promptedHead = ""
     private var installOnQuit = false
     private var rebuildOnQuit = false
     private var updateTimer: Timer?
+    private var updateRid = ""   // 確認 1 回ごとの追跡 ID(host-*.jsonl と update_app.sh の記録をつなぐ)
+    private var checkLogged = false
+    private var waitLogged = ""
+    private var nudgeSeen: Double?  // /api/state の update_nudge(更新係が新しい版を fetch すると変わる)
 
     @objc func checkUpdate() { checkUpdate(manual: true) }
 
     func startUpdateChecks() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.checkUpdate(manual: false) }
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in self?.checkUpdate(manual: false) }
+        // 1 分おき(2026-09-27 段 2 で 30 分から): 更新係が fetch した版を拾い、前面で使っている間は 1 分ごとに待ち直す。
+        // /api/version は手元の git を数回読むだけ。合図(/api/state の update_nudge)が来たらすぐにも確かめる
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.checkUpdate(manual: false) }
     }
 
     private func checkUpdate(manual: Bool) {
@@ -1167,12 +1210,32 @@ final class Host: NSObject, NSApplicationDelegate {
             return
         }
         let info = updateInfo(v)
-        diag(["phase": "update_check", "manual": manual, "available": info.available, "head": info.head, "rebuild": info.rebuild])
+        updateRid = String(UUID().uuidString.prefix(8)).lowercased()
+        if manual || info.available || !checkLogged {   // 1 分おきなので、新しい版が無い確認は起動後の 1 回だけ記録する
+            checkLogged = true
+            diag(["phase": "update_check", "rid": updateRid, "manual": manual, "available": info.available, "head": info.head,
+                  "running": v["running"] as? String ?? "", "behind": v["behind"] as? Int ?? 0, "rebuild": info.rebuild,
+                  "blocked": v["blocked"] as? String ?? "", "recording": info.recording, "auto": updateModel.auto])
+        }
         if !manual {
             guard info.available, !info.recording else { return }
-            if updateModel.auto {   // 自動で行う: 画面は出さず、終了時に反映する
-                installOnQuit = true
-                rebuildOnQuit = info.rebuild
+            if updateModel.auto {   // 自動で行う(2026-09-27 段 2): 空いていて前面でなければ裏で再起動。それ以外は待つ
+                let busy = saving || caption != nil || updateWin?.isVisible == true || menuPanel?.isVisible == true
+                // 同じ版での自動の再起動は 1 回だけ(開き直しても「新しい版あり」のままなら、繰り返さずに終了時へ回す)
+                let again = UserDefaults.standard.string(forKey: Host.autoRestartKey) == info.head
+                if !busy && !again && !NSApplication.shared.isActive {
+                    UserDefaults.standard.set(info.head, forKey: Host.autoRestartKey)
+                    restartForUpdate(rebuild: info.rebuild, relaunch: gOverlay?.panel.isVisible == true ? "bg" : "hidden")
+                } else {   // 前面で使っている・ライブ字幕・保存中 → 次の確認(1 分後)で見直す。その前に終われば終了時に入れる
+                    installOnQuit = true
+                    rebuildOnQuit = info.rebuild
+                    let reason = again ? "again" : busy ? "busy" : "active"
+                    if waitLogged != reason + info.head {   // 待つ理由が変わったときだけ記録する
+                        waitLogged = reason + info.head
+                        diag(["phase": "update_wait", "rid": updateRid, "head": info.head, "reason": reason,
+                              "saving": saving, "caption": caption != nil])
+                    }
+                }
                 return
             }
             if info.head == UserDefaults.standard.string(forKey: Host.skipKey) || info.head == promptedHead { return }
@@ -1215,20 +1278,24 @@ final class Host: NSObject, NSApplicationDelegate {
             installOnQuit = true
             rebuildOnQuit = info.rebuild
         case "now":
-            restartForUpdate(rebuild: info.rebuild)
+            restartForUpdate(rebuild: info.rebuild, relaunch: "")
         default:
             break
         }
-        diag(["phase": "update_action", "action": a, "head": info.head])
+        diag(["phase": "update_action", "rid": updateRid, "action": a, "head": info.head])
     }
 
     /// packaging/update_app.sh をアプリと切り離して起動する(アプリの終了を待って、要るなら作り直し、relaunch なら開き直す)。
-    private func spawnUpdater(rebuild: Bool, relaunch: Bool) -> Bool {
+    /// relaunch: "" = 前に開き直す / "bg" / "hidden"(自動・フォーカスを奪わない)/ "norelaunch"(終了時にインストール)
+    private func spawnUpdater(rebuild: Bool, relaunch: String) -> Bool {
         let upd = URL(fileURLWithPath: script).deletingLastPathComponent().appendingPathComponent("update_app.sh").path
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = ["-c", "nohup \"$0\" \"$1\" \"$2\" \"$3\" >/dev/null 2>&1 &", upd, String(getpid()),
-                       rebuild ? "rebuild" : "", relaunch ? "" : "norelaunch"]
+                       rebuild ? "rebuild" : "", relaunch]
+        var env = ProcessInfo.processInfo.environment
+        env["MEETCUE_UPDATE_RID"] = updateRid
+        p.environment = env
         do {
             try p.run()
             p.waitUntilExit()
@@ -1239,19 +1306,21 @@ final class Host: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func restartForUpdate(rebuild: Bool) {
-        guard spawnUpdater(rebuild: rebuild, relaunch: true) else { return }
-        diag(["phase": "update_restart", "rebuild": rebuild])
+    private func restartForUpdate(rebuild: Bool, relaunch: String) {
+        guard spawnUpdater(rebuild: rebuild, relaunch: relaunch) else { return }
+        diag(["phase": "update_restart", "rid": updateRid, "rebuild": rebuild, "relaunch": relaunch])
         installOnQuit = false
         NSApplication.shared.terminate(nil)
     }
 
-    /// 「終了時にインストール」: 本体(Python)の変更は次の起動で読み込まれるので何もしない。画面の部品(Swift)の変更だけ、
-    /// 終了を待って作り直す(開き直しはしない)
+    /// 「終了時にインストール」: 終了を待って、実行用ツリーなら取り込み、画面の部品(Swift)が変わっていれば作り直す
+    /// (開き直しはしない)。2026-09-27 段 2 から取り込みも終了の後なので、作り直しが要らなくても呼ぶ
     func applicationWillTerminate(_ notification: Notification) {
-        if installOnQuit && rebuildOnQuit {
-            _ = spawnUpdater(rebuild: true, relaunch: false)
-            diag(["phase": "update_on_quit", "rebuild": true])
+        // 終了した記録(2026-09-27): 開き直した直後に利用者が終了しても、更新係が「起動に失敗」と取り違えて巻き戻さないように
+        diag(["phase": "host_quit"])
+        if installOnQuit {
+            _ = spawnUpdater(rebuild: rebuildOnQuit, relaunch: "norelaunch")
+            diag(["phase": "update_on_quit", "rid": updateRid, "rebuild": rebuildOnQuit])
         }
     }
 
@@ -1312,6 +1381,7 @@ struct OverlayHelper {
             exit(0)
         }
         let hostScript = Bundle.main.object(forInfoDictionaryKey: "MeetcueLaunchScript") as? String
+        gRelaunch = ["bg", "hidden"].contains(opt("--relaunch", "")) ? opt("--relaunch", "") : ""
         guard let url = URL(string: opt("--url", "http://127.0.0.1:8765/")) else { diag(["phase": "abort", "reason": "bad_url"]); exit(2) }
         let window = args.contains("--window") || hostScript != nil
         let captionOnly = hostScript == nil && args.contains("--caption")   // ライブ字幕のウィンドウだけ(確かめる用・--url は caption.html)
@@ -1322,6 +1392,9 @@ struct OverlayHelper {
 
         let app = NSApplication.shared
         if let hostScript {
+            openHostLog()
+            diag(["phase": "host_start", "pid": getpid(),
+                  "build": Bundle.main.object(forInfoDictionaryKey: "MeetcueBuildCommit") as? String ?? "", "script": hostScript])
             app.setActivationPolicy(.regular)     // Dock に出る通常のアプリ
             gHost = Host(script: hostScript, url: url)
             Host.installMenu()

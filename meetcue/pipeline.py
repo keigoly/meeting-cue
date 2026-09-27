@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import sys
 import threading
 import time
 from collections import deque
@@ -53,7 +54,9 @@ class Source:
             return cls("tap-all", "system", "")
         raise ValueError(f"unknown source: {spec}")
 
-    def argv(self, cfg: Config) -> list[str]:
+    def argv(self, cfg: Config, platform: str | None = None) -> list[str]:
+        if (platform or sys.platform) == "win32":
+            return self._argv_windows(cfg)
         stt = str(cfg.helpers_dir / "stt_helper" / "stt-helper")
         tap = str(cfg.helpers_dir / "tap_helper" / "tap-helper")
         if self.kind == "mic":
@@ -68,6 +71,31 @@ class Source:
         if self.kind == "tap-all":
             return [tap, "--locale", cfg.locale, "--channel", self.channel, "--exclude-pid", str(os.getpid())]
         raise ValueError(self.kind)
+
+    def _argv_windows(self, cfg: Config) -> list[str]:
+        """Windows: 専用の仮想環境の python で helpers/windows/stt_helper/stt_helper.py を動かす(FR-12・契約は FR-2 と同じ)。
+        取り込みは WASAPI(PyAudioWPatch)。tap 系はどれも出力機器のループバック(機器単位・会議アプリだけは選べない)。"""
+        base = [str(cfg.stt_python), str(cfg.helpers_dir / "stt_helper" / "stt_helper.py"),
+                "--locale", cfg.locale, "--channel", self.channel]
+        lb = ["--loopback-device", cfg.loopback_device] if cfg.loopback_device else []
+        if self.kind == "mic":
+            return base + (["--mic-device", cfg.mic_device] if cfg.mic_device else [])
+        if self.kind == "file":
+            return base + ["--file", self.arg, "--pace", str(cfg.file_pace)]
+        if self.kind == "tap":
+            return base + ["--loopback", f"name:{self.arg}"] + lb
+        if self.kind == "tap-pid":
+            return base + ["--loopback", f"pid:{self.arg}"] + lb
+        if self.kind == "tap-all":
+            return base + ["--loopback", "all", "--exclude-pid", str(os.getpid())] + lb
+        raise ValueError(self.kind)
+
+
+def helper_hint(platform: str | None = None) -> str:
+    """ヘルパーが無いときの案内(OS ごと)。"""
+    if (platform or sys.platform) == "win32":
+        return r"packaging\windows\setup.ps1 を実行"
+    return "helpers/macos で make"
 
 
 def segmenter_config(cfg: Config, src: Source):
@@ -288,7 +316,7 @@ class Pipeline:
                 self._rec_paths.add(str(out))
                 argv += ["--record", str(out)]
             if not Path(argv[0]).exists():
-                self.ui.error(f"helper が無い: {argv[0]}(helpers/macos で make)")
+                self.ui.error(f"helper が無い: {argv[0]}({helper_hint()})")
                 continue
             helper = STTHelper(argv, channel=src.channel, on_diag=lambda d, c=src.channel: self._diag(c, d))
             await helper.start()

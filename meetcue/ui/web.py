@@ -17,6 +17,17 @@ import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class _QuietServer(ThreadingHTTPServer):
+    """画面(ウィンドウ・ブラウザ)が接続を切っただけの例外は記録しない(2026-09-27: Windows ではウィンドウを閉じるたびに
+    ConnectionAbortedError の traceback がアプリのログへ出ていた)。それ以外の例外は従来どおり出す。"""
+
+    def handle_error(self, request, client_address) -> None:
+        import sys
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 from pathlib import Path
 from typing import Callable
 
@@ -180,7 +191,7 @@ class WebUI:
                     return self._json(500, {"error": str(e)})
                 self._json(200, {"ok": True, "action": action})
 
-        self._server = ThreadingHTTPServer((self.host, self.port), Handler)
+        self._server = _QuietServer((self.host, self.port), Handler)
         self._server.daemon_threads = True
         self._thread = threading.Thread(target=self._server.serve_forever, name="meetcue-web", daemon=True)
         self._thread.start()

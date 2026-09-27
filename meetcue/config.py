@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,7 +100,14 @@ class Config:
     privacy: str = "private"        # private | local
     locale: str = "ja-JP"
     profile: str = ""
-    helpers_dir: Path = REPO_ROOT / "helpers" / "macos"
+    helpers_dir: Path = REPO_ROOT / "helpers" / ("windows" if sys.platform == "win32" else "macos")
+    # Windows の STT ヘルパーを動かす python(専用の仮想環境・packaging/windows/setup.ps1 が作る。REQUIREMENTS FR-12)
+    stt_python: Path = APP_DIR / "stt-venv" / "Scripts" / "python.exe"
+    # Windows のウィンドウ(pywebview)と本体を動かす python(アプリ用の仮想環境・setup.ps1 が作る。本体は import しない)
+    window_python: Path = APP_DIR / "app-venv" / "Scripts" / "python.exe"
+    # Windows の取り込み機器(名前の一部・空 = 既定の機器)。loopback は相手の声を聞く出力機器(ヘッドセットなど)
+    loopback_device: str = ""
+    mic_device: str = ""
     file_pace: float = 1.0
     record_audio: bool = True       # 2026-09-26 Q10: 音声は常に保存(audio/<channel>.m4a・録音後の再生用)
     llm: LLMConfig = field(default_factory=LLMConfig)

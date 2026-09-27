@@ -1,0 +1,33 @@
+# 更新の約束(Mac / Windows 同時アップデート・2026-09-27 段 2)。更新係(packaging/updater/)はこれだけを読み、
+# アプリの中身を知らない。コマンドの "{python}" は更新係を動かしている python(3.12)に置き換わる。
+# branch(stable)が無い clone では取り込みは起きず、アプリの「アップデートを確認」の作り直しと開き直しだけに使われる。
+
+[app]
+name = "meeting-cue"
+display_name = "Meeting Cue!"                        # 通知の題
+branch = "stable"                                    # 両方の OS の試験に合格したコミットだけが進む(.github/workflows/ci.yml)
+data_dir = "~/.meeting-cue"                          # 記録 logs/updater-<日付>.jsonl・巻き戻した版 updater/bad
+data_env = "MEETCUE_HOME"                            # 試験ではこの環境変数で data_dir を差し替える
+version_url = "http://127.0.0.1:8765/api/version"    # 版: running = 動いているコミット
+nudge_url = "http://127.0.0.1:8765/api/action"       # 「今すぐ確認して」: POST {"action": "update_check"}(いつ入れるかはアプリが決める)
+check_interval_s = 60                                # stable を確かめる間隔(launchd)。mini から各機械へは Tailscale の決まりで入れないため、合図の代わりに 1 分おき
+
+[mac]
+bundle_id = "local.meetcue.app"
+process = "Meeting Cue"                              # 動いているか(pgrep -x)
+updater_label = "local.meetcue.updater"              # 更新係の launchd(~/Library/LaunchAgents/<label>.plist)
+build = [["make", "-C", "helpers/macos"], ["packaging/make_mac_app.sh"]]
+rebuild_paths = ["helpers/macos/", "packaging/make_mac_app.sh", "packaging/icon/"]   # アプリの中身が変わる所だけ作り直す
+                                                     # (作り直すと署名が変わり許可を求め直されることがある。meetcue/app.py の /api/version も読む)
+smoke = [["{python}", "-c", "import meetcue.app, meetcue.cli"]]   # 起動の前の点検(読み込めない版は入れない)
+exit_log = "logs/host-{date}.jsonl"                  # 本体が終わるとアプリ(ホスト)が書く記録(data_dir から・{date} = YYYYMMDD)
+exit_phase = "host_child_exit"                       # 開き直した後にこの行が 0 以外の status で出たら、起動の確認を待たずに失敗とする
+                                                     # (quitting = true の行は終了の操作で止めたもの。数えない)
+quit_phase = "host_quit"                             # 開き直した後に利用者がアプリを終了した記録。出たら確認をやめ、巻き戻さない
+spawn_phase = "host_spawn"                           # 本体を起動した記録(pid 付き)。起動で確かめていない版を次の起動で確かめる起点
+test = [["{python}", "-m", "pytest", "-q", "tests"]]
+
+[notify]
+# 失敗・巻き戻しを Discord へ(鍵があるときだけ・メンションなし・発話や記録の本文は送らない)。鍵は git に入れない
+discord_env_file = "~/.secrets/meeting-cue.env"
+discord_key = "MEETCUE_DISCORD_WEBHOOK"              # #meeting-cue の Webhook の URL

@@ -1,7 +1,7 @@
 # Meeting Cue! — 要件定義書
 
 > 作成: 2026-09-25(Claude Fable 5.1・keigoly様 の口頭要件から起こした初版)
-> 状態: **2026-09-25 keigoly様 確認済み**(「問題ないと思うので次に進めてください」。§12 の仮置きをそのまま採用)。Phase 0 スパイクと Phase 1 の通し動作(合成音声)は 2026-09-25 に完了・実測は `spikes/PHASE0_RESULTS.md`。2026-09-26 改訂: FR-3(話し続ける音声の打ち切り)・FR-6c(質問タブ)・FR-7(本体のウィンドウ)・FR-9(音声の常時保存)・§12 Q10〜Q12
+> 状態: **2026-09-25 keigoly様 確認済み**(「問題ないと思うので次に進めてください」。§12 の仮置きをそのまま採用)。Phase 0 スパイクと Phase 1 の通し動作(合成音声)は 2026-09-25 に完了・実測は `spikes/PHASE0_RESULTS.md`。2026-09-26 改訂: FR-3(話し続ける音声の打ち切り)・FR-6c(質問タブ)・FR-7(本体のウィンドウ)・FR-9(音声の常時保存)・§12 Q10〜Q12。2026-09-27 改訂: FR-12(Windows の STT を決定・専用の仮想環境)・FR-13(Windows 版の公開と配り方の案)・§7(依存の方針)
 > 位置づけ: 設計の正本。実装の進め方は `DEVELOPMENT.md`。
 
 ---
@@ -118,6 +118,7 @@ Meeting Cue! は録音して後で読む道具ではなく、「**聞きなが�
 - 段階: Phase 1 = ターミナル表示(見える化)→ Phase 3 = **localhost の Web UI(stdlib の HTTP サーバ + SSE・依存ゼロ)** を Swift の WKWebView ウィンドウ(`overlay-helper`)で出す(Windows は pywebview か WebView2 の予定)。Web UI にしておくと Windows と同じ画面を使い回せる。2026-09-25 に半透明パネル版を実装、2026-09-26 に本体のウィンドウへ改修(U1〜U4)。
 - 常駐: `meetcue app` が Web UI を出し続け、録音の開始・停止はウィンドウのボタンで行う(1 プロセス = 1 セッションだった `meetcue run` は残す)。
 - メニューバー(2026-09-26): ログイン時に起動 / 録音を開始・停止(LOCAL も 1 クリック)/ レコーディング / ライブ字幕(半透明の最前面パネル)/ 設定を開く ⌘, / 記録のフォルダを開く / 終了 ⌘Q。録音中はアイコンの右上に赤い点。ウィンドウを閉じてもメニューバーに残る。2026-09-27 keigoly様: 見た目を角丸のパネルにする(NSMenu ではなく半透明のパネル + SwiftUI。ログイン時の起動が無効なら黄色の帯・録音の大きなボタン・丸い背景のアイコンの行・「一般」の行に ⌘, / ⌘Q の表示。外を押すか Esc で閉じる)。同日 keigoly様: 「レコーディング」の位置を「記録のフォルダを開く」に、「一般」の記録のフォルダを「アップデートを確認」に替える(手元の repo に動いている版より新しいコミットがあるかを `/api/version` で見て、あれば再起動。Swift が変わっていればアプリを作り直してから開き直す = `packaging/update_app.sh`。録音中・保存中はしない。公開後は GitHub のリリースを見る形に替える)。同日 keigoly様: アップデートの画面を専用のウィンドウにする(アイコン・太字の見出し・変更内容 = コミットの件名と使う人に向く説明 1 行・「今後は自動で行う」・スキップ / 終了時にインストール / インストールして再起動。起動の 30 s 後と 30 分ごとにも確かめ、同じ版は一度だけ知らせる。「終了時」は本体の変更なら次の起動で読むだけ、画面の部品の変更なら終了を待って作り直す = `update_app.sh <pid> rebuild norelaunch`)。
+- **アップデート**(2026-09-27 keigoly様・Mac / Windows 同時アップデートの段 2): 「自動で更新する」がオンなら、新しい版を知らせずに、**録音・保存中でなく、前面で使っておらず、ライブ字幕も開いていないときに裏で入れ替える**(再起動してもフォーカスを奪わない・閉じていたウィンドウは開かない)。使っている間は 1 分ごとに見直し、先に終了すれば終了時に入れる。同じ版での自動の再起動は 1 回だけ。取り込みは必ずアプリの終了の後(動いている本体の足元のファイルを変えない)。起動の点検か版の確認で失敗した版は 1 つ前へ戻して二度と入れない(macOS の通知)。約束は repo の根元の `update.toml`、中身は `packaging/updater/`(更新係)。
 - **置き換え辞書**(2026-09-27 keigoly様 選択): 音声認識がよく間違える固有名詞を正しい語に置き換える。`~/.meeting-cue/replacements.txt`(個人の固有名詞を含むので repo に入れない)を ⚙ で編集。1 行 = `正しい語|誤り|誤り…`。空白の有無と英字の大文字・小文字は区別しない・長い誤りから 1 回だけ・1 文字の誤りは使わない・英字だけの誤りは英単語の一部に当てない。確定した発言(記録・判定・回答候補・サマリ・書き出し)と途中の表示(画面・ライブ字幕)の両方に掛け、置き換える前の文は transcript の `raw` に残す。背景: 区切りを長くしても英語の固有名詞は直らず、Apple の語彙の指定(contextualStrings)も効かなかった。読み上げ 2 回に初期の辞書(15 語)を掛けると CER 29.1% → 13.4% / 33.7% → 18.3%(固有名詞の範囲 68% → 13%。同じ録音の誤りから作った辞書なので、新しい音声ではもっと控えめになる)。
 - **ライブ字幕**(2026-09-27 keigoly様): 信号機ボタン付きの暗いパネル(caption.html)。**録音していなくても字幕を出す**(本体が同じ STT ヘルパーを保存・判定・生成なしで動かす = `captions.CaptionRunner`。画面は開いている間 5 s ごとに action `caption` を送り、20 s 途絶えたら止める)。録音を始めたら録音の字幕に引き継ぎ、保存が終わったら字幕だけに戻る。上の帯: スピーカー / マイク(両方も可)・言語(日本語・English。録音中は録音の言語)・**翻訳**(確定した字幕を 1 行ずつ生成 AI で日本語 / 英語へ。接続先は設定のまま・役割 main = Sonnet。Claude サブスクなら温めたプロセスを 1 つ足す。**LOCAL の録音中と AI の生成オフでは訳さない**。同時 2 件まで・溜まったら捨てる)・文字の大きさ・常に手前・✦ 回答候補(録音中の最新の質問の回答候補と逆質問・★)・録音の開始/停止。記録は `~/.meeting-cue/logs/captions-<日付>.jsonl`(caption_start / stop / error / caption_tr の ms)。途中の文字は 1 文字なら出さず、6 s 更新も確定もなければ消す(2026-09-27 実機: 無音の間に音声認識が 10 s ごとに「あ」を出し、捨てられたまま末尾に残っていた)。5 s ごとの音量と partial・final の数を caption_level に残す。実機(keigoly様・Claude サブスク): ニュース 70 s で確定 8 行すべて英訳・1 行 1.5〜2.1 s・最初の文字まで約 0.6 s。実測(合成会議・OpenRouter): 翻訳 1 行 p50 1.5 s・max 1.7 s。
 - アイコン(2026-09-26 keigoly様 採用・PixivStudio 作): アプリ = D-01d(片耳ヘッドセットのマスコット・口の前に人差し指)を macOS の格子(1024 に 824 の角丸・影)に収めた .icns、メニューバー = C-D-01d-02 のシルエットを 18pt のテンプレート画像にしたもの(録音中は右上に赤い点を重ねる)。原画は `~/.meeting-cue/icon-inbox/`(非 git)、成果物と作り方は `packaging/icon/`。
@@ -161,14 +162,26 @@ Meeting Cue! は録音して後で読む道具ではなく、「**聞きなが�
 - 起動時と画面に「LOCAL」バッジを出し、送信していないことを見て分かるようにする(沈黙を成功と読ませない)。
 
 ### FR-12 Windows 対応(第 2 段階)
-- 差し替える 3 点: 音声取得(WASAPI loopback + mic)・STT(候補: sherpa-onnx の日本語ストリーミング Zipformer / faster-whisper CUDA(RTX 4060 Ti)/ Windows 内蔵認識)・最前面ウィンドウ(pywebview + WebView2)。ホットキーは `pynput`。
+- 差し替える 3 点: 音声取得(WASAPI loopback + mic)・STT・最前面ウィンドウ(pywebview + WebView2)。ホットキーは `pynput`。
 - Python 本体(セグメンター・判定・検索・生成・Web UI・記録)は共通。STT ヘルパーのプロトコル(FR-2)を守れば差し替えだけで成立する。
-- 着手前に Windows 側でスパイク(STT の partial 遅延・精度)を計測してから選ぶ。
+- **STT は faster-whisper の large-v3-turbo(CUDA・float16)+ Silero VAD(faster-whisper に同梱の `silero_vad_v6.onnx`)に決定**(2026-09-27 keigoly様。比較は `spikes/WINDOWS_STT.md`: CER 1.1 %・final は話し終わりから p50 0.73 s / p90 0.90 s・句読点付き・VRAM 1 チャネル 2.4 GB)。partial は区間の頭から 0.3 s ごとに認識し直し、文字が変わったら出す。final は VAD が区間を閉じたとき(無音 0.3 s)か stdin の `finalize`。区間は最長 20 s で切る。`start_s` は VAD の区間の始まり。
+- **音声認識のパッケージは STT ヘルパー専用の仮想環境にだけ入れる**(2026-09-27 keigoly様)。本体は標準ライブラリのまま。ヘルパーは `helpers/windows/stt_helper/stt_helper.py`(専用環境の python で動く・本体を import しない)。環境は `~/.meeting-cue/stt-venv`、モデルは `~/.meeting-cue/models/`(どちらも `packaging/windows/setup.ps1` が作る)。
+- NVIDIA の GPU が要る(CPU では 1 回の認識に 8.7 s かかり実時間に届かない)。GPU の無い PC への縮退(Windows 内蔵の SAPI・sherpa-onnx の ReazonSpeech)は公開後に決める。
+- 会議中はネットへ出ない: ヘルパーは `HF_HUB_OFFLINE=1` で動き、モデルはセットアップのときだけ取る(LOCAL の約束)。
+- **ウィンドウは pywebview(WebView2)**(2026-09-27 keigoly様)。Mac の overlay_helper と同じく別プロセスのヘルパー(`helpers/windows/window_helper/`)で、pywebview はアプリ用の仮想環境 `~/.meeting-cue/app-venv` にだけ入れる(本体は標準ライブラリのまま・同じ環境の python で動かすが import しない)。画面の HTML は変えない: ヘルパーが `window.webkit.messageHandlers.meetcue.postMessage` を pywebview の API へつなぐ写しを差し込み、同じ `cmd`(top / pin / drag / main / theme)を受ける。ライブ字幕はウィンドウのメニューから開く(Mac はメニューバー)。
+- **API キーは Windows の資格情報マネージャー**に保存する(2026-09-27 keigoly様・Mac のキーチェーンに当たる)。ctypes で advapi32 の CredWrite / CredRead / CredDelete を呼ぶ(依存なし)。名前は `local.meetcue/<接続先>`。キーを画面・ログ・コマンドラインに出さない。
+- **Windows の初版の範囲**(2026-09-27 keigoly様「最小で公開」): `setup.ps1` でスタートメニューに登録 → ウィンドウで録音・ライブ字幕・記録・設定・書き出し(音声を重ねるのは PyAV)が使える・「常に手前」。**次の版に回すもの**: タスクトレイ常駐・グローバルホットキー・自動更新・字幕の固定(クリックを下へ通す)・Google Drive への移動。README に明記する。
 
 ### FR-13 GitHub 公開(第 3 段階)
 - 個人情報・秘密・個人パス(Vault のパス・アカウント名)をコードと既定設定から分離。`config.example.toml` と `README` の手順で第三者が動かせる状態にする。
 - **名前は日英とも「Meeting Cue!」**(2026-09-26 keigoly様 決定・アプリ名・メニュー・画面・文書で統一)。slug `meeting-cue`・CLI `meetcue`・Python パッケージ・bundle id `local.meetcue.app`・データの置き場 `~/.meeting-cue/`・Vault のフォルダ名 `01_Projects/Meeting Cue/` は内部名として据え置く(`!` は slug やパスに向かないため)。ライセンスは MIT(2026-09-27 keigoly様 選択)。
 - 公開前に秘密走査(gitleaks 等)を通す。
+- **Windows 版も同じ公開リポジトリからダウンロードできるようにする**(2026-09-27 keigoly様)。配り方は以下で確定(2026-09-27 keigoly様「配り方は案のとおり」):
+  - 入手は Mac と同じく「clone か GitHub の ZIP で取り、手元で準備する」。`packaging\windows\setup.ps1` を 1 回実行すると、前提の検査(Windows 10 2004 以降 / 11・NVIDIA の GPU とドライバ)→ uv で Python 3.12 → STT ヘルパー専用の仮想環境(`helpers/windows/stt_helper/requirements.txt` の固定版)→ モデル(約 1.6 GB)の取得までを行う。やり直しても壊れない(入っていれば飛ばす)。
+  - 初回の取得は合計約 3.7 GB(CUDA の部品 約 2 GB を含む)。CUDA の部品とモデルは利用者の手元で PyPI と Hugging Face から取る(こちらで再配布しない。NVIDIA の配布条件に触れない)。
+  - インストーラ(exe)と GitHub Releases の配布物は当面作らない(署名が無いと SmartScreen に止められる・Releases は 1 ファイル 2 GB の上限で依存 3.7 GB を載せられない)。
+  - 更新は Mac と同じく git の `stable`(Windows の更新係は同時アップデートの後の段)。ZIP で取った人は取り直し。
+  - README に Windows の節(動作環境: Windows 10 2004 以降 / 11・NVIDIA の GPU(VRAM 6 GB 以上を推奨)・Python は uv が用意)を足す。公開版に入らない `tests/fixtures/wav/` を使う Windows の試験は、素材が無ければ飛ばす。起動の入口(スタートメニュー)・ウィンドウ・トレイは FR-12 の残り(Step 3)で作る。
 
 ---
 
@@ -252,6 +265,11 @@ Meeting Cue! は録音して後で読む道具ではなく、「**聞きなが�
 |---|---|---|---|
 | 本体言語 | Python 3.12(uv・`pyproject.toml`) | 確定 | 前例と同じ。Windows へそのまま持ち込める。代替: Swift 単体(Mac 専用になる) |
 | STT(Mac) | SpeechAnalyzer(Swift ヘルパー・オンデバイス) | 確定(実測済み) | 無料・低発熱・日本語 partial 実測済み。代替: whisper.cpp streaming(熱・遅延増) |
+| STT(Windows) | faster-whisper large-v3-turbo(CUDA・float16)+ Silero VAD(同梱)。Python のヘルパーを**専用の仮想環境**で動かす | 確定(2026-09-27 実測・keigoly様) | CER 1.1 %・final p50 0.73 s・句読点付き(`spikes/WINDOWS_STT.md`)。NVIDIA の GPU が要る。代替(GPU の無い PC の縮退候補): Windows 内蔵 SAPI(依存ゼロ・CER 8.2 %)/ sherpa-onnx ReazonSpeech(CPU・6.5 %) |
+| 音声取得(Windows) | WASAPI を **PyAudioWPatch** で(マイク + 既定の出力機器のループバック = 再生中の音をまとめて。Mac の `tap-all` と同じ範囲)。STT ヘルパーの中で取り込む | 確定(2026-09-27 keigoly様) | STT ヘルパー専用の仮想環境に入れる。代替: soundcard / 自前の ctypes(会議アプリの音だけを取れるが作る量が多い) |
+| 配布(Windows) | clone / ZIP + `packaging\windows\setup.ps1`(専用環境とモデルを手元で用意) | 確定(2026-09-27 keigoly様・FR-13) | インストーラと Releases は署名と容量の問題で当面なし |
+| ウィンドウ(Windows) | pywebview(WebView2)の別プロセスのヘルパー。アプリ用の仮想環境 `~/.meeting-cue/app-venv` にだけ入れる | 確定(2026-09-27 keigoly様) | 代替: Edge のアプリ表示(依存なしだが「常に手前」が作れない) |
+| API キーの保管(Windows) | 資格情報マネージャー(ctypes で advapi32) | 確定(2026-09-27 keigoly様) | 依存なし。代替: DPAPI の暗号化ファイル / 手書きの `~/.secrets` |
 | 音声取得(Mac) | AVAudioEngine(mic)+ process tap(system) | 確定(実測済み) | 仮想デバイス不要。代替: BlackHole + 複数出力装置 |
 | 判定 | Jev(`typesafe/jev-1.13` via OpenRouter `alpha/decisions`) | 確定・**日本語精度は較正待ち** | 70〜500 ms・入力 $0.042/M。失敗時はヒューリスティック。将来 TypeSafe 直 API(waitlist) |
 | 選ぶ係 | Jev の score で候補を基準別採点 → 重み付き合計で並べ替え | 確定(2026-09-25 組み込み) | 出典は Vault の Jev ノート(FR-6b)。取れなければ生成順のまま |
@@ -260,6 +278,8 @@ Meeting Cue! は録音して後で読む道具ではなく、「**聞きなが�
 | UI | ターミナル → FastAPI + WebSocket → 最前面ウィンドウ(pywebview / NSPanel+WKWebView) | 仮(§12 Q6) | Mac/Windows で同じ画面。代替: SwiftUI(Mac 専用) |
 | ホットキー | Carbon `RegisterEventHotKey`(Mac)/ `pynput`(Windows) | 確定 | アクセシビリティ許可不要(前例) |
 | 記録 | JSONL(segment のキー: channel / text / start_seconds / end_seconds) | 確定 | jq で扱える |
+
+- **依存の方針**: 本体(`meetcue`)は標準ライブラリだけ(試験は pytest)。Windows の STT ヘルパーは別プロセス・別の仮想環境で、`helpers/windows/stt_helper/requirements.txt` の固定版(faster-whisper・CTranslate2・onnxruntime・numpy・av と、CUDA の部品 nvidia-cublas-cu12・nvidia-cudnn-cu12、取り込みの PyAudioWPatch)だけを使う。Windows のウィンドウのヘルパーはアプリ用の仮想環境で `helpers/windows/window_helper/requirements.txt` の固定版(pywebview とその依存)だけを使う。Mac の Swift ヘルパーが別バイナリなのと同じ位置付けで、本体からは import しない(2026-09-27 keigoly様)。版を上げるときは `requirements.txt` を直し、`spikes/WINDOWS_STT.md` の計測で精度と遅れが落ちないことを確かめる。
 
 ---
 
@@ -316,7 +336,7 @@ state(例): `{"mode":"presenter","channel":"room","prev":["…","…"],"utteranc
 | **2 品質** | Jev の較正(記録 30 件に手でラベル)・閾値調整・プロンプト調整・ナレッジ検索の当たり具合・生成の打ち切りと冪等 | 実会議 2 回で誤起動 ≤ 20% / 取りこぼし ≤ 20%(手ラベル) | Step 2 |
 | **3 UX** ◐ | Web UI(stdlib HTTP + SSE)+ 最前面パネル(NSPanel + WKWebView)・ホットキー(⌃⌥P/D/M・パネル側 ⌃⌥L/H/R)・モード切替・深掘り・summary.md・Vault 保存(任意)は **2026-09-25 実装・合成会議で動作**。**残: 実会議 3 回運用・会議アプリ検知(自動起動/停止)・熱試験 1 時間** | 実会議 3 回運用・15 分以上落ちない・熱試験 1 時間 | Step 3 |
 | **3b UI 改修**(2026-09-26 追加) | U1 本体のウィンドウの骨組み(`meetcue app` 常駐・開始/停止ボタン・一覧・波形・タブ)→ U2 音声の保存と録音後の再生画面 → U3 + U4 質問タブと優先制御 | 各段で合成/実音声の通し確認。U3+U4 は「質問タブを動かしたまま iroots 17 問の e2e p50 が悪化しない」 | Step 1〜3 を段ごとに |
-| **4 Windows** | 音声取得・STT・ウィンドウの差し替え(スパイク → 実装) | Windows で Phase 1 の完了条件を満たす | — |
+| **4 Windows** ◐ | 音声取得・STT・ウィンドウの差し替え(スパイク → 実装)。**2026-09-27: STT を計測して決定(`spikes/WINDOWS_STT.md`)→ STT ヘルパー・専用環境のセットアップ・WASAPI の取り込み(PyAudioWPatch)まで実装。合成会議をループバックで取って質問 3/3・話し終わり → 発話の確定 p50 0.63 s**。**同日: アプリとして公開できる初版(スタートメニュー・pywebview のウィンドウ・ライブ字幕・常に手前・資格情報マネージャー・書き出し・README)**。残(次の版): タスクトレイ・ホットキー・自動更新・字幕の固定・Google Drive・GPU の無い PC・画面の Mac 向けの文言 | Windows で Phase 1 の完了条件を満たす(質問 3/3・最初の候補 p50 3 s 以内) | Step 1〜3 |
 | **5 公開** | 秘密・個人パス分離・README・ライセンス・登録簿 class=public | 第三者が README だけで起動できる。gitleaks 緑 | 別途相談 |
 
 
@@ -335,7 +355,7 @@ state(例): `{"mode":"presenter","channel":"room","prev":["…","…"],"utteranc
 | R7 | 費用の暴走(長時間・多発話) | 台帳超過 | 月上限 fail-closed・判定は質問候補だけ(相づち除去後)・生成は質問だけ |
 | R8 | TCC(マイク・システム音声録音・画面収録)の許可漏れ | 起動しない | `meetcue doctor` で許可状態と helper の `ready` を検査し、未許可なら手順を表示 |
 | R9 | 熱(ファンレス) | 長時間で遅延 | ローカル LLM を既定で載せない。1 時間試験で確認 |
-| R10 | Windows の STT 選定 | 遅延・精度 | Phase 4 冒頭のスパイクで数値を見てから決める |
+| R10 | Windows の STT(2026-09-27 決定済み) | GPU メモリ不足・GPU の無い PC で動かない | 2 チャネル同時で VRAM +4.7 GB(8 GB の GPU で他のアプリと重なると不足)。partial の間隔を延ばす・マイク側だけ軽いモデル、で逃がす。GPU の無い PC は SAPI か ReazonSpeech の縮退を公開後に決める |
 
 ---
 

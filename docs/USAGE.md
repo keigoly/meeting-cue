@@ -25,7 +25,7 @@ packaging/make_mac_app.sh        # ~/Applications/Meeting Cue!.app を作る(swi
 - メニューバー(画面上部のアイコン・録音中は右上に赤い点): 押すと角丸のパネルが開く。頭に状態(待機中 / 録音中の経過時間 / 保存中)、録音を開始と LOCAL で録音の 2 枚のタイル(録音中は停止のタイル)/ ライブ字幕 / 記録のフォルダを開く / ログイン時に起動(スイッチ)/ 設定 ⌘, ・更新を確認・終了 ⌘Q。外を押すか Esc で閉じる。本体のウィンドウは Dock のアイコンか「設定を開く」から
 - ライブ字幕: **録音していなくても**スピーカー / マイクの音声を字幕にする(保存しない)。下の操作台でスピーカー・マイクの切替 / 言語(日本語・English)/ **翻訳**(確定した字幕を生成 AI で日本語・英語へ。Claude サブスクなら Sonnet。LOCAL の録音中と AI オフでは訳さない)/ 文字の大きさ / 常に手前(全画面の会議の上にも出る)/ ✦ 回答候補(録音中の最新の質問と ★)/ 録音の開始・停止。録音を始めると録音の字幕に切り替わる。帯の空いている所をつかむと動かせる。⌃⌥L で固定⇄移動・⌃⌥H で表示/非表示
 - 置き換え辞書(⚙): 音声認識がよく間違える固有名詞を正しい語に置き換える(1 行 = `正しい語|誤り|誤り…`・`~/.meeting-cue/replacements.txt`)。記録・質問の判定・回答候補・サマリ・書き出し・画面とライブ字幕の途中表示に効く。置き換える前の文は transcript の `raw` に残る
-- アップデートを確認: 手元の repo に動いている版より新しいコミットがあれば、変更内容(コミットの件名と説明)と「このバージョンはスキップ / 終了時にインストール / インストールして再起動」を出す。起動の 30 s 後と 30 分ごとにも確かめ、新しい版は一度だけ知らせる(録音中・スキップした版は出さない)。「今後は自動で行う」なら知らせずに終了時に反映。最新ならメニューから押したときだけ「最新の版です」(画面の部品 = Swift が変わっていれば作り直してから開き直す・`packaging/update_app.sh`・記録は `~/.meeting-cue/logs/update-*.log`)
+- アップデートを確認: 手元の repo(実行用ツリーなら更新係が取ってきた `stable`)に動いている版より新しいコミットがあれば、変更内容(コミットの件名と説明)と「今すぐ更新して再起動 / 終了時に更新 / この版はスキップ」を出す。起動の 30 s 後と 1 分ごと(更新係の合図があればすぐ)にも確かめ、新しい版は一度だけ知らせる(録音中・スキップした版は出さない)。「自動で更新する」がオンなら知らせずに、録音・保存中でなく前面で使っておらず、ライブ字幕も開いていないときに裏で入れ替える(フォーカスを奪わない・閉じていたウィンドウは開かない・使っている間は終了時に反映)。入れた版が起動の点検か版の確認で失敗したら、1 つ前の版に戻して通知する(その版は二度と入れない)。最新ならメニューから押したときだけ「最新の版です」(画面の部品 = Swift が変わっていれば作り直してから開き直す・`packaging/update_app.sh` → `packaging/updater/`・記録は `~/.meeting-cue/logs/updater-<日付>.jsonl` と `host-<日付>.jsonl`)
 - 一覧の記録を右クリック: **録音を書き出す…**(保存先を選ぶ → `<題名> <日時>/` に 音声 1 本の .m4a・文字起こし・サマリ)/ **Google Drive に移動…**(Google Drive for desktop の `マイドライブ/Meeting Cue!/` へ移す・一覧に ☁ 付きで残りそのまま開ける・LOCAL の記録は移せない)/ **削除**(確認してゴミ箱へ)
 - ウィンドウを閉じてもメニューバーに残る(録音も続く)。終了はメニューの「Meeting Cue! を終了」か ⌘Q(録音中なら保存とサマリを待ってから終わる)
 - デバッグ(Terminal にログを出す): `packaging/launch.sh open app`。従来の起動のしかた(リハーサル等)は `packaging/launch.sh open rehearsal`。詳細は [packaging/DEVELOPMENT.md](../packaging/DEVELOPMENT.md)
@@ -36,7 +36,18 @@ uv run --python 3.12 --no-project python -m meetcue.cli app            # 手で�
 
 停止は Ctrl-C。終了時に `summary.md`(要約・決定・宿題・質問とキュー・文字起こし)を作り、`--save-vault` なら Vault の `01_Projects/Meeting Cue/Sessions/` にも置きます(機微モードでは題名だけ)。記録は `~/.meeting-cue/sessions/<日時>_<id>/`(transcript / judgments / cues / metrics の JSONL)。`python -m meetcue.cli report` で所要 ms の p50/p90 が出ます。
 
-## ホットキー(システム全体・Accessibility 許可不要)
+## Windows
+
+- **入れる**: `powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\setup.ps1`(README の「セットアップ」)。作るもの: 音声認識の専用環境 `~/.meeting-cue/stt-venv`・モデル `~/.meeting-cue/models/`・ウィンドウの環境 `~/.meeting-cue/app-venv`・スタートメニューの **Meeting Cue!**(`packaging\windows\launch.pyw` を開く)。何度実行しても大丈夫。
+- **開く・閉じる**: スタートメニューの Meeting Cue!。本体のウィンドウを閉じるとアプリも終わる(録音中なら止めて保存してから)。ライブ字幕と「常に手前」はウィンドウのメニュー「表示」から。既に開いているときにもう一度開くと、ウィンドウだけがもう 1 枚開く。
+- **音**: 自分 = 既定のマイク、相手 = 既定の出力機器(スピーカー・ヘッドセット)で鳴っている音をまとめて。機器を変えるときは `~/.meeting-cue/config.toml` に `loopback_device = "Headset"` / `mic_device = "USB"`(名前の一部)。機器の一覧は `~/.meeting-cue/stt-venv/Scripts/python.exe helpers/windows/stt_helper/stt_helper.py --list-devices`。マイクが無音のときは Windows の設定(プライバシー → マイク → デスクトップ アプリにアクセスを許可)を確かめる。
+- **API キー**: ⚙ で登録すると Windows の資格情報マネージャー(`local.meetcue/<接続先>`)に入る(画面・ログには出さない)。`~/.secrets/meeting-cue.env` も読める。
+- **記録とログ**: 記録は Mac と同じ `~/.meeting-cue/sessions/`。アプリの出力は `~/.meeting-cue/logs/app-<日時>.log`(20 個まで)。
+- **更新**: `git pull` のあとに `setup.ps1` をもう一度(自動アップデートは次の版)。
+- **アンインストール**: スタートメニューの Meeting Cue! を消し、`~/.meeting-cue/stt-venv`・`app-venv`・`models`・`webview` を消す(記録 `sessions` は残る)。資格情報マネージャーの `local.meetcue/…` も消す。
+- **まだ無いもの**: タスクトレイ・システム全体のホットキー・自動アップデート・字幕の固定(クリックを下へ通す)・Google Drive への移動。
+
+## ホットキー(Mac・システム全体・Accessibility 許可不要)
 
 | キー | 動作 |
 |---|---|
@@ -85,7 +96,7 @@ uv run --python 3.12 --no-project python -m meetcue.cli run --source mic --sourc
 
 ```
 meetcue/            Python 本体(uv・依存ゼロ)
-  stt_reader.py     ヘルパーの JSONL 受信(Mac / 将来の Windows 共通の契約)
+  stt_reader.py     ヘルパーの JSONL 受信(Mac / Windows 共通の契約)
   segmenter.py      ポーズ検出・強制 finalize・文分割・相づち除去
   judge/            jev.py(判定 API・stdlib)/ heuristic.py(縮退)
   knowledge/        index.py(FTS5・文字 bigram)
@@ -94,7 +105,8 @@ meetcue/            Python 本体(uv・依存ゼロ)
   pipeline.py       オーケストレーター / cli.py / session.py / ledger.py / summary.py
   ui/terminal.py    ターミナル表示 / ui/web.py(stdlib HTTP + SSE)/ ui/static/index.html(画面)
 helpers/macos/      Swift: stt_helper(マイク・--file)/ tap_helper(process tap)/ hotkey_helper / overlay_helper(NSPanel + WKWebView)/ mix_helper(書き出しの音声を 1 本に重ねる)/ Makefile
-packaging/          起動ラッパー: launch.sh(Terminal で起動)/ make_mac_app.sh(Meeting Cue!.app を作る)
+helpers/windows/    Python(本体とは別の仮想環境): stt_helper(faster-whisper + Silero VAD・PyAudioWPatch の取り込み)/ window_helper(pywebview)/ mix_helper(PyAV)
+packaging/          起動ラッパー: launch.sh(Terminal で起動)/ make_mac_app.sh(Meeting Cue!.app を作る)/ windows/(setup.ps1・launch.pyw)
 spikes/             Phase 0 の計測スクリプトと結果
 tests/              pytest(uv run --with pytest python -m pytest)
 ```

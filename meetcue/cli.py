@@ -133,9 +133,15 @@ def cmd_doctor(a: argparse.Namespace) -> int:
         row("sqlite fts5", True, sqlite3.sqlite_version)
     except sqlite3.OperationalError as e:
         row("sqlite fts5", False, str(e))
-    for name in ("stt_helper/stt-helper", "tap_helper/tap-helper"):
-        p = cfg.helpers_dir / name
-        row(f"helper {name}", p.exists(), str(p) if p.exists() else f"無い → cd helpers/macos && make")
+    if sys.platform == "win32":   # Windows: 専用の仮想環境の python + ヘルパーのスクリプト + モデル(FR-12)
+        model = cfg.app_dir / "models" / "faster-whisper-large-v3-turbo" / "model.bin"
+        for name, p in (("stt python", cfg.stt_python), ("helper stt_helper.py", cfg.helpers_dir / "stt_helper" / "stt_helper.py"),
+                        ("stt model", model)):
+            row(name, p.exists(), str(p) if p.exists() else r"無い → packaging\windows\setup.ps1 を実行")
+    else:
+        for name in ("stt_helper/stt-helper", "tap_helper/tap-helper"):
+            p = cfg.helpers_dir / name
+            row(f"helper {name}", p.exists(), str(p) if p.exists() else f"無い → cd helpers/macos && make")
     row("vault", cfg.vault_root.exists(), str(cfg.vault_root))
     if cfg.index_db.exists():
         from .knowledge.index import VaultIndex

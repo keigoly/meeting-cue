@@ -120,6 +120,11 @@ cmd_serve() {
   # uv を挟むと SIGINT の届き方が変わるので、uv が管理する python を直接 exec する(依存は stdlib のみ)
   local py; py="$(uv python find 3.12 2>>"$log")" || { echo "python 3.12 が見つかりません(uv python install 3.12)" >>"$log"; exit 1; }
   echo "serve: $(date '+%F %T') python=$py sources=${SOURCES[*]}" >>"$log"
+  # 起動で確かめていない版(更新係の印・2026-09-27)があれば、この起動で確かめる。$$ は exec の後の本体と同じ pid。
+  # 動けば印を消し、落ちたら更新係が確かめ済みの最後の版へ戻す(packaging/updater/DEVELOPMENT.md)
+  if [[ -f "$APP_DIR/updater/unverified" && -f "$REPO/packaging/updater/run.sh" ]]; then
+    nohup /bin/bash "$REPO/packaging/updater/run.sh" verify-pending --pid $$ >>"$log" 2>&1 &
+  fi
   exec "$py" -m meetcue.cli app --no-window "${SOURCES[@]}" >>"$log" 2>&1
 }
 

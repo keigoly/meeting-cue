@@ -257,7 +257,7 @@ def transcript_markdown(detail: dict) -> str:
     return "\n".join(head + (lines or ["(文字起こしはありません)"])) + "\n"
 
 
-def export_session(root, sid: str, dest_parent: Path, mix_helper: Path) -> dict:
+def export_session(root, sid: str, dest_parent: Path, mix_helper: Path | list[str]) -> dict:
     """dest_parent/<題名> <日時>/ に 音声.m4a(相手と自分を頭合わせして 1 本に重ねる)・文字起こし.md・サマリ.md を置く。"""
     d = session_dir(root, sid)
     detail = session_detail(root, sid)
@@ -275,7 +275,9 @@ def export_session(root, sid: str, dest_parent: Path, mix_helper: Path) -> dict:
     if ins:
         t0s = [t for _, t in ins if t is not None]
         t0 = min(t0s) if t0s else None
-        args = [str(mix_helper), "--out", str(out / "音声.m4a")]
+        # Mac は Swift の mix-helper(パス 1 つ)、Windows は [python, mix_helper.py](引数の並び)
+        head = [str(a) for a in mix_helper] if isinstance(mix_helper, (list, tuple)) else [str(mix_helper)]
+        args = [*head, "--out", str(out / "音声.m4a")]
         for f, t in ins:
             off = (t - t0) / 1000 if (t is not None and t0 is not None) else 0
             args += ["--in", f"{f}@{off:.3f}"]

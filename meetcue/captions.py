@@ -21,7 +21,7 @@ from pathlib import Path
 from .config import Config
 from .cues import llm
 from .metrics import Metrics, new_rid
-from .pipeline import Source, segmenter_config
+from .pipeline import Source, helper_hint, segmenter_config
 from .replacements import Replacer
 from .segmenter import Segmenter
 from .stt_reader import STTHelper
@@ -64,7 +64,7 @@ class CaptionRunner:
                 continue
             argv = src.argv(cfg)
             if not Path(argv[0]).exists():
-                self._error(f"helper が無い: {argv[0]}(helpers/macos で make)")
+                self._error(f"helper が無い: {argv[0]}({helper_hint()})")
                 continue
             helper = STTHelper(argv, channel=src.channel, on_diag=lambda d, c=src.channel: self._diag(c, d))
             await helper.start()

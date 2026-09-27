@@ -15,8 +15,19 @@
 # Dock に置いた項目やログイン項目が付いてきやすい)。
 set -euo pipefail
 
+# 作り直しは 1 つずつ(2026-09-27 段 2): 終了時の自動の作り直しと手の作り直しが重なり、片方の rm -rf Contents が
+# もう片方の途中を消した(cp: …/Resources/AppIcon.icns: No such file or directory)
+if [[ -z "${MEETCUE_APP_LOCKED:-}" ]] && command -v lockf >/dev/null; then
+  export MEETCUE_APP_LOCKED=1
+  exec lockf -k -t 600 "/tmp/meetcue-make-app-$(id -u).lock" "$0" "$@"
+fi
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="${1:-$HOME/Applications}"
+RUNTIME="$HOME/Apps/meeting-cue"   # 実行用ツリー(更新係が stable を取り込む)。ここ以外から作るとアプリは自動更新から外れる
+if [[ -d "$RUNTIME/.git" && "$(cd "$REPO" && pwd -P)" != "$(cd "$RUNTIME" && pwd -P)" ]]; then
+  echo "注意: 実行用ツリー($RUNTIME)ではない repo から作ります。自動更新から外れます(戻すには $RUNTIME/packaging/make_mac_app.sh)" >&2
+fi
 APP="$DEST_DIR/Meeting Cue!.app"
 LEGACY="$DEST_DIR/Meeting Cue.app"   # 2026-09-26 の改名より前の名前
 LAUNCHER="$REPO/packaging/launch.sh"

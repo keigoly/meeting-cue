@@ -3,6 +3,7 @@
 本物のキーチェーン・~/.secrets・ネットワークには触れない(secrets と providers の入口を差し替える)。
 """
 import json
+import sys
 
 import pytest
 
@@ -29,6 +30,8 @@ def env(tmp_path, monkeypatch):
         monkeypatch.delenv(v, raising=False)
     opened = []
     monkeypatch.setattr(app_mod.subprocess, "run", lambda args, **kw: opened.append(args))
+    # Windows は既定のブラウザを os.startfile で開く(試験では本当に開かない)
+    monkeypatch.setattr(app_mod.os, "startfile", lambda url: opened.append(["startfile", url]), raising=False)
     a = App(Config(app_dir=tmp_path), sources=[], window=False)
     a._drive_accounts = lambda: [{"label": "a@example.com", "root": tmp_path / "drive"}]
     pushed = []
@@ -100,7 +103,8 @@ def test_env_file_key_is_used_but_not_overwritten(env, monkeypatch):
 def test_open_only_known_pages(env):
     a, _, opened, *_ = env
     assert a._api("POST", "/api/open", {"page": "openrouter"}) == (200, {"ok": True})
-    assert opened[-1] == ["open", "https://openrouter.ai/keys"]
+    opener = "startfile" if sys.platform == "win32" else "open"
+    assert opened[-1] == [opener, "https://openrouter.ai/keys"]
     assert a._api("POST", "/api/open", {"page": "https://evil.example.com"})[0] == 400
     assert len(opened) == 1
 

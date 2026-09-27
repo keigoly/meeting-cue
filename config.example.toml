@@ -7,6 +7,11 @@ privacy = "private"                     # private(クラウド可)| local(クラ
 locale = "ja-JP"
 # 自分の立場の要約(キュー生成のプロンプトに入る。氏名・連絡先など PII は書かない)
 profile = "例: IT 企業のエンジニア。担当分野(製品・技術)と、会議でよく聞かれる話題を短く。"
+# Windows だけ: 取り込む機器(名前の一部・空 = 既定の機器)。一覧は
+#   ~/.meeting-cue/stt-venv/Scripts/python.exe helpers/windows/stt_helper/stt_helper.py --list-devices
+# loopback_device = "Headset"           # 相手の声を聞く出力機器(再生中の音をまとめて取る)
+# mic_device = "USB"                    # 自分の声のマイク
+# stt_python = "~/.meeting-cue/stt-venv/Scripts/python.exe"   # STT ヘルパー専用の仮想環境(packaging/windows/setup.ps1 が作る)
 
 [llm]
 model = "anthropic/claude-sonnet-5"      # 既定(OpenRouter の model id)
