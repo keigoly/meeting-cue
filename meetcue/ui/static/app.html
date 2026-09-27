@@ -422,7 +422,7 @@
   <div class="setrow2"><span>生成 AI の接続先</span><select id="set-provider"></select></div>
   <div class="provdetail" id="set-prov-detail"></div>
   <div id="set-keys"></div>
-  <div class="setnote" id="set-keynote">API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先はこの Mac のキーチェーンで、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。</div>
+  <div class="setnote" id="set-keynote">API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先は OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)で、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。</div>
   <div class="warn" id="set-warn"></div>
   <div class="setsec">Google Drive</div>
   <div class="setnote" id="set-drive-status"></div>
@@ -447,7 +447,7 @@
     <div class="onb-intro" id="onb-intro1"></div>
     <div class="choice">
       <button class="choice-btn" data-choice="ai"><b>AI で支援する</b><span>相手の質問を判定し、回答候補と逆質問をその場で出します(API キーが要ります)</span></button>
-      <button class="choice-btn" data-choice="rec"><b>録音と文字起こしだけ</b><span>文字起こしと録音は Mac の中だけで行い、外へは何も送りません(キーは要りません)</span></button>
+      <button class="choice-btn" data-choice="rec"><b>録音と文字起こしだけ</b><span>文字起こしと録音はこのパソコンの中だけで行い、外へは何も送りません(キーは要りません)</span></button>
     </div>
     <div class="dlgbtns"><button class="pill" id="onb-later">あとで</button></div>
   </div>
@@ -573,12 +573,12 @@
 
   // ---- ナギの台詞(2026-09-26 keigoly様)。オンのとき案内の文言をナギ(アイコンのキャラクター)の言葉にする。
   //      操作に要る情報(ボタンの場所など)は落とさない。
-  //      LOCAL の「Mac の外に出さない」は LOCAL のときだけ(通常は文字起こしの文をクラウドへ送るため)。
+  //      LOCAL の「パソコンの外に出さない」は LOCAL のときだけ(通常は文字起こしの文をクラウドへ送るため)。
   let nagiOn = true;
   const NAGI = {
     idle: '準備できています。始めるときは右上の「録音を開始」をどうぞ。これまでの記録は左の一覧から開けます。',
     start: {participant: '聞いています。', presenter: '質疑は任せてください。私は袖にいます。', audience: '聞きどころを拾っておきます。'},
-    local: 'この会議の内容は、この Mac の外に出しません。',
+    local: 'この会議の内容は、このパソコンの外に出しません。',
     asked: 'あなたへの質問です。候補を出します。',
     askedNoLlm: 'あなたへの質問です。今は生成を止めているので、候補は出しません。',   // LOCAL・鍵なし・--no-llm
     ranked: '★ から。結論を先にどうぞ。',
@@ -588,11 +588,11 @@
     saved: 'お疲れさまでした。録音を保存しました。',
     savedSummary: 'お疲れさまでした。録音とまとめを保存しました。',
     exportPick: '書き出す場所を選んでください。',
-    exported: '書き出しました。Finder で開いておきます。',
+    exported: '書き出しました。保存した場所を開いておきます。',
     driveMoved: 'Google Drive へ移しました。アップロードは Google Drive のアプリに任せます。',
     trashed: 'ゴミ箱へ移しました。戻したいときはゴミ箱からどうぞ。',
     code: {   // サーバの status / error の code → ナギの台詞(code が無いもの・知らないものは元の文言のまま)
-      silence: '相手の声が届いていません。会議の音声がこの Mac から出ているか(別の機器で再生していないか)確かめてください。',
+      silence: '相手の声が届いていません。会議の音声がこのパソコンから出ているか(別の機器で再生していないか)確かめてください。',
       silence_end: '相手の声が戻りました。',
       stopping: '止めています。少しお待ちください。',
       summary: 'まとめを作っています…',
@@ -630,7 +630,7 @@
   const keySet = (p) => !!appSettings.keys?.[p]?.set;
   function keyStatText(p) {
     const k = appSettings.keys?.[p] || {};
-    return !k.set ? '未設定' : k.source === 'keychain' ? '設定済み(キーチェーン)' : '設定済み(~/.secrets のファイルか環境変数)';
+    return !k.set ? '未設定' : k.source === 'keychain' ? '設定済み(OS の鍵の保管庫)' : '設定済み(~/.secrets のファイルか環境変数)';
   }
   function provOptions(sel) {
     const cur = appSettings.provider || 'openrouter';
@@ -667,7 +667,7 @@
       };
       const del = row.querySelector('[data-k=delete]');
       if (del) del.onclick = async () => {
-        const ok = await ask({title: 'キーを削除', yes: '削除', danger: true, body: `${n} のキーをキーチェーンから削除します(~/.secrets のファイルは変えません)。`});
+        const ok = await ask({title: 'キーを削除', yes: '削除', danger: true, body: `${n} のキーを OS の鍵の保管庫から削除します(~/.secrets のファイルは変えません)。`});
         if (!ok) return;
         const r = await post('/api/keys/delete', {provider: p}); if (r.ok) applySettings(await r.json());
       };
@@ -677,7 +677,7 @@
   }
   function modeNote() {
     const g = appSettings.generate, j = appSettings.jev;
-    if (!g && !j) return '今は「録音だけ」です。文字起こしと録音は Mac の中だけで行い、外へは何も送りません。';
+    if (!g && !j) return '今は「録音だけ」です。文字起こしと録音はこのパソコンの中だけで行い、外へは何も送りません。';
     if (!j) return '質問の判定はオフです(回答タブは動きません)。質問タブとサマリは AI で作ります。';
     if (!g) return 'AI の生成はオフです。質問を判定してナレッジだけ出します。';
     return `質問を判定して、${provName(appSettings.provider)} で回答候補・質問・サマリを作ります。`;
@@ -690,7 +690,7 @@
     else if (appSettings.generate && p === 'openai' && !appSettings.openai_model) w.push('OpenAI のモデルを選んでください(選ぶまで生成しません)。');
     if (appSettings.generate && p === 'openai' && keySet(p) && !(appSettings.openai_price_in || appSettings.openai_price_out))
       w.push('OpenAI の価格が未入力のため、月の予算上限では数えられません。');
-    if (appSettings.jev && !keySet('openrouter')) w.push('OpenRouter のキーが無いため、質問の判定は Mac の中の簡易判定になります(精度が下がります)。');
+    if (appSettings.jev && !keySet('openrouter')) w.push('OpenRouter のキーが無いため、質問の判定はこのパソコンの中の簡易判定になります(精度が下がります)。');
     return w.join(' ');
   }
   // 接続先ごとの中身: OpenRouter / Anthropic はモデルの説明、OpenAI はモデル選び(キーの一覧から)と価格
@@ -702,7 +702,7 @@
       return;
     }
     if (p === 'claude-cli') {
-      box.innerHTML = `<b>開発者向け・自己責任</b>: この Mac でログイン済みの Claude Code を呼び出し、あなたの Claude の月額プランの利用枠で回答を作ります(アプリは認証情報に触れません)。モデルは ${esc(am.main)} / ${esc(am.fast)} / ${esc(am.deep)}。録音中は Claude Code を 2 つ先に起動して待たせるので、初トークンは API と同じくらいです。API の月予算には数えません。Anthropic の規約上、ほかの人に使わせる形では配れません(公開版の既定はオフ)。質問の判定(Jev)は OpenRouter のキーを使います。${appSettings.subscription_cli?.found ? '' : '<br><b>Claude Code(claude)が見つかりません。</b>'}`;
+      box.innerHTML = `<b>開発者向け・自己責任</b>: このパソコンでログイン済みの Claude Code を呼び出し、あなたの Claude の月額プランの利用枠で回答を作ります(アプリは認証情報に触れません)。モデルは ${esc(am.main)} / ${esc(am.fast)} / ${esc(am.deep)}。録音中は Claude Code を 2 つ先に起動して待たせるので、初トークンは API と同じくらいです。API の月予算には数えません。Anthropic の規約上、ほかの人に使わせる形では配れません(公開版の既定はオフ)。質問の判定(Jev)は OpenRouter のキーを使います。${appSettings.subscription_cli?.found ? '' : '<br><b>Claude Code(claude)が見つかりません。</b>'}`;
       return;
     }
     if (p === 'openrouter') { box.textContent = '回答・質問タブ = Claude Sonnet 5 / サマリ = Haiku 4.5 / 深く考える = Opus 5.5(OpenRouter 経由・質問の判定 Jev と同じキー)。'; return; }
@@ -745,8 +745,8 @@
   }
   // API キーの説明(2026-09-27): 一般の利用者には「月額プランは使えません」のまま。開発者向けの切り替え
   // (config.toml の [llm] subscription_cli)がオンの Mac では、選べる「Claude サブスク」と食い違わないよう書き分ける
-  const KEYNOTE_PUBLIC = 'API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先はこの Mac のキーチェーンで、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。';
-  const KEYNOTE_DEV = 'API キーは各社のサイトで発行したものを貼り付けます。この Mac では開発者向けの切り替え(config.toml の [llm] subscription_cli)がオンなので、接続先に「Claude サブスク(Claude Code 経由)」も選べます(ご自分の用途だけ・キーは不要・下の説明を参照)。ほかのアプリに月額プランを使わせることは Anthropic の規約で認められていないため、公開版の利用者には出しません。キーの保存先はこの Mac のキーチェーンで、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。';
+  const KEYNOTE_PUBLIC = 'API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先は OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)で、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。';
+  const KEYNOTE_DEV = 'API キーは各社のサイトで発行したものを貼り付けます。このパソコンでは開発者向けの切り替え(config.toml の [llm] subscription_cli)がオンなので、接続先に「Claude サブスク(Claude Code 経由)」も選べます(ご自分の用途だけ・キーは不要・下の説明を参照)。ほかのアプリに月額プランを使わせることは Anthropic の規約で認められていないため、公開版の利用者には出しません。キーの保存先は OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)で、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。';
   function applySettings(s) {
     appSettings = {...appSettings, ...s};
     if (s.colors) applyColors(s.colors);
@@ -768,7 +768,7 @@
   let onbStep = 1, onbPath = [1];
   const ONB = {
     1: ['はじめまして、ナギです。会議の袖に控えて、あなたが話す番のきっかけを小声で渡します。まず、どこまで手伝うかを決めましょう。', '最初に使い方を選んでください。あとから ⚙ で変えられます。'],
-    2: ['回答候補を作る AI の接続先と、その API キーを登録してください。キーはこの Mac のキーチェーンにしまいます。', '生成 AI の接続先と API キーを登録します。キーはこの Mac のキーチェーンに保存します。'],
+    2: ['回答候補を作る AI の接続先と、その API キーを登録してください。キーは OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)にしまいます。', '生成 AI の接続先と API キーを登録します。キーは OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)に保存します。'],
     3: ['終わった記録を Google Drive へ移せるようにしておきますか。移しても一覧から開けます。', '記録を Google Drive へ移す機能を使うかを選びます。'],
     4: ['準備できています。始めるときは右上の「録音を開始」をどうぞ。', '設定が終わりました。右上の「録音を開始」から始められます。'],
   };
@@ -855,7 +855,7 @@
     item('録音を書き出す…', () => exportSession(s));
     item('Google Drive に移動…', () => driveSession(s),
       s.where === 'drive' ? 'Google Drive に保存済みです' :
-      s.privacy === 'local' ? 'LOCAL(仕事の会議)の記録は Mac の外に出せません' :
+      s.privacy === 'local' ? 'LOCAL(仕事の会議)の記録はパソコンの外に出せません' :
       !storage.drive?.length ? 'Google Drive for desktop が見つかりません' :
       appSettings.drive === false ? '設定で Google Drive を使わない設定になっています(⚙)' : '');
     m.appendChild(document.createElement('hr'));
@@ -900,7 +900,7 @@
     }
     const where = storage.drive.length === 1 ? `(${storage.drive[0].label})` : '';
     const ok = await ask({title: 'Google Drive に移動', yes: '移動',
-      body: `「${s.title}」を Google Drive${where} のマイドライブ/Meeting Cue! へ移します。Mac からは消え、Google Drive のアプリがアップロードします。一覧には雲の印付きで残り、再生や文字起こしはそのまま使えます。`,
+      body: `「${s.title}」を Google Drive${where} のマイドライブ/Meeting Cue! へ移します。このパソコンからは消え、Google Drive のアプリがアップロードします。一覧には雲の印付きで残り、再生や文字起こしはそのまま使えます。`,
       extra: sel});
     if (!ok) return;
     const j = await sessionOp(s, 'drive', {account: sel ? +sel.value : 0}); if (!j) return;
@@ -939,8 +939,8 @@
     document.body.classList.toggle('idle', !live && !rv && !st.recording && !st.saving);
     $('#pl-ch').style.display = rv && Object.keys(player.chs).length > 1 ? 'flex' : 'none';
     const chip = (t, cls = '') => t ? `<span class="chip ${cls}">${esc(t)}</span>` : '';
-    if (live) $('#meta').innerHTML = chip(jdate(st.started_ms)) + chip(st.recording ? '録音中' : '保存しています…', 'live') + chip('この Mac') + chip(MODE_JA[st.mode] || st.mode);
-    else if (rv) $('#meta').innerHTML = chip(jdate(rv.started_ms)) + chip('録音済み') + chip('この Mac') + chip(MODE_JA[rv.mode] || rv.mode || '') + chip(mmss(rv.duration_s || 0));
+    if (live) $('#meta').innerHTML = chip(jdate(st.started_ms)) + chip(st.recording ? '録音中' : '保存しています…', 'live') + chip('このパソコン') + chip(MODE_JA[st.mode] || st.mode);
+    else if (rv) $('#meta').innerHTML = chip(jdate(rv.started_ms)) + chip('録音済み') + chip('このパソコン') + chip(MODE_JA[rv.mode] || rv.mode || '') + chip(mmss(rv.duration_s || 0));
     else $('#meta').innerHTML = `<div class="cue">${nagiOn ? '<b>ナギ</b>' + esc(NAGI.idle) : esc('左の一覧から記録を選ぶか、右上の「録音を開始」を押してください。')}</div>`;
     const rb = $('#recbtn'); rb.classList.toggle('stop', !!st.recording);
     rb.disabled = !st.recording && !!st.saving;   // 停止後、回答とサマリを仕上げている間は次の録音を始めない

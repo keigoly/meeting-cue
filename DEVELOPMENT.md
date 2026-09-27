@@ -16,7 +16,7 @@
 - Jev の `to_me` は 10 件でしか較正していない(閾値 0.5 は仮)。
 - Vault 検索は一般語(費用・リスク)で雑音を拾う。
 - 実マイク・実 Zoom(process tap)は未試験(tap はファイル再生の経路で GO・`tap_create status=0`)。
-- Windows(2026-09-27・初版): STT ヘルパー(faster-whisper large-v3-turbo)・取り込み(PyAudioWPatch)・ウィンドウ(pywebview)・キーの保管(資格情報マネージャー)・書き出し・セットアップとスタートメニュー(`packaging/windows/`)。タスクトレイ・ホットキー・自動更新・字幕の固定・Google Drive は次の版。画面の一部の文言が Mac 向けのまま(HTML は共通)。本体は Windows の既定の文字コード(cp932)だと落ちるので UTF-8 モードで動かす(起動の入口は対応済み)。詳細は `helpers/windows/DEVELOPMENT.md`・`packaging/windows/DEVELOPMENT.md`。
+- Windows(2026-09-27・初版): STT ヘルパー(faster-whisper large-v3-turbo)・取り込み(PyAudioWPatch)・ウィンドウ(pywebview)・キーの保管(資格情報マネージャー)・書き出し・セットアップとスタートメニュー(`packaging/windows/`)。タスクトレイ・ホットキー・自動更新・字幕の固定・Google Drive は次の版。画面の文言は 2026-09-28 に両方の OS に通じる書き方へ(「このパソコン」「OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)」・HTML は共通のまま)。本体は Windows の既定の文字コード(cp932)だと落ちるので UTF-8 モードで動かす(起動の入口は対応済み)。詳細は `helpers/windows/DEVELOPMENT.md`・`packaging/windows/DEVELOPMENT.md`。
 - 起動直前に音量を変えると Core Audio の再構成で tap の `device_start` が 80 秒以上待たされる(2026-09-25 実測・run1)。会議アプリと音量を整えてから起動する。
 - 秘密は `~/.secrets/meeting-cue.env`。索引 `~/.meeting-cue/index/vault.sqlite` は Vault 本文の複製なので repo に出さない。
 

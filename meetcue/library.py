@@ -301,7 +301,7 @@ def move_to_drive(local_root: Path, sid: str, drive_root: Path) -> Path:
     if d is None:
         raise FileNotFoundError(sid)
     if _meta(d).get("privacy") == "local":
-        raise PermissionError("LOCAL(仕事の会議)の記録は Mac の外に出せません")
+        raise PermissionError("LOCAL(仕事の会議)の記録はパソコンの外に出せません")
     dest = Path(drive_root) / sid
     if dest.exists():
         raise FileExistsError(dest)
