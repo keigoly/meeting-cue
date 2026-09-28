@@ -7,7 +7,7 @@ Windows 版のヘルパーの置き場。Mac の `helpers/macos/`(Swift)と同�
 | ディレクトリ | 役割 | 状態 |
 |---|---|---|
 | `stt_helper/` | 音声認識(faster-whisper large-v3-turbo・CUDA + Silero VAD)と取り込み(PyAudioWPatch で WASAPI のマイク / 出力機器のループバック)。契約は docs/REQUIREMENTS.md FR-2(stdout JSONL `ready` / `partial` / `final` / `bye`・stdin `finalize` / `quit`・stderr の診断と `phase=level`)。`--record` で m4a を保存 | 2026-09-27 ファイル・マイク・ループバックまで |
-| `window_helper/` | 本体の画面を pywebview(WebView2)のウィンドウに出す(Mac の overlay_helper に当たる)。アプリ用の仮想環境 `~/.meeting-cue/app-venv` で動く(`requirements.txt`)。画面の `window.webkit.messageHandlers.meetcue.postMessage` の写しを差し込み、`cmd` top / main / caption を受ける。メニューは無し(2026-09-28)。アイコンは AppUserModelID + WM_SETICON、タイトルバーは画面の背景の明るさに合わせて DWM でダーク / ライト。stdin `top on|off` / `caption` / `quit` | 2026-09-27 |
+| `window_helper/` | 本体の画面を pywebview(WebView2)のウィンドウに出す(Mac の overlay_helper に当たる)。アプリ用の仮想環境 `~/.meeting-cue/app-venv` で動く(`requirements.txt`)。画面の `window.webkit.messageHandlers.meetcue.postMessage` の写しを差し込み、`cmd` top / main / caption を受ける。メニューは無し(2026-09-28)。アイコンは AppUserModelID + WM_SETICON(`--stamp-shortcut <.lnk>` でスタートメニューのショートカットにも同じ ID を書く・setup.ps1 が使う)、タイトルバーは画面の背景の明るさに合わせて DWM でダーク / ライト。stdin `top on|off` / `caption` / `quit` | 2026-09-27 |
 | `mix_helper/` | 書き出しで 2 本の音声を 1 本の m4a に重ねる(Mac の mix-helper と同じ約束・PyAV)。STT の仮想環境で動く | 2026-09-27 |
 | (次の版)トレイ・ホットキー | タスクトレイ常駐・システム全体のホットキー・字幕の固定(クリックを下へ通す) | 未着手 |
 

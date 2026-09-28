@@ -7,7 +7,8 @@
 #   4. model     : <app>\models\faster-whisper-large-v3-turbo (pinned revision, about 1.6 GB)
 #   5. self-test : loads the model on the GPU once
 #   6. app venv  : <app>\app-venv <- helpers\windows\window_helper\requirements.txt (pywebview; the app itself runs here too)
-#   7. shortcut  : Start menu "Meeting Cue!" -> app-venv pythonw.exe packaging\windows\launch.pyw (icon from docs\images\icon.png)
+#   7. shortcut  : Start menu "Meeting Cue!" -> app-venv pythonw.exe packaging\windows\launch.pyw (icon from docs\images\icon.png,
+#                  AppUserModelID keigoly.MeetingCue = the same as the window, so taskbar pins point at this shortcut)
 # <app> is $env:MEETCUE_HOME or %USERPROFILE%\.meeting-cue (where the app keeps its data).
 # The first run downloads about 3.7 GB (CUDA libraries from PyPI, the model from Hugging Face).
 # Nothing is downloaded during meetings: the helper runs with HF_HUB_OFFLINE=1.
@@ -101,6 +102,10 @@ if (-not $NoShortcut) {
     $sc.IconLocation = "$Ico,0"
     $sc.Description = "Meeting Cue!"
     $sc.Save()
+    # Give the shortcut the window's AppUserModelID so the taskbar treats both as one app: pinning the running window
+    # then pins this shortcut (launch.pyw, our icon) instead of a bare python.exe with the Python icon.
+    & $AppPy (Join-Path $Repo "helpers\windows\window_helper\window_helper.py") --stamp-shortcut $Lnk
+    if ($LASTEXITCODE -ne 0) { Write-Warning "Could not set the AppUserModelID on the shortcut. Pinning to the taskbar may show the Python icon." }
     Write-Host "   $Lnk"
 }
 

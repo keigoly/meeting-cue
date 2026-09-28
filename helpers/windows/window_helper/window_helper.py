@@ -3,6 +3,7 @@
 起動(本体 app.py が、アプリ用の仮想環境 ~/.meeting-cue/app-venv の python で動かす):
   window_helper.py --window --url http://127.0.0.1:8765/       本体のウィンドウ(閉じるとこのプロセスが終わる → 本体も終わる)
   window_helper.py --caption --url http://127.0.0.1:8765/caption.html   ライブ字幕のウィンドウだけ(確かめる用)
+  window_helper.py --stamp-shortcut <.lnk>    ショートカットにウィンドウと同じ AppUserModelID を書いて終わる(setup.ps1 が使う)
 stdin(1 行 1 コマンド・本体から): "top on" / "top off" / "caption"(字幕のウィンドウを開く)/ "quit"。EOF では止めない。
 stderr: 診断 JSON(phase=shown / bridge / closed / error)。
 
@@ -14,7 +15,10 @@ pin = 字幕の固定(クリックを下へ通す)は次の版で、今は常に
 写しは画面の読み込みの後に入るので、読み込みの途中の呼び出しは届かない。代わりに写しが入った時点で外観を測って知らせる。
 
 見た目(2026-09-28 keigoly様「アイコンが出ない・白いメニューがダサい・ちゃんとダークモードに」):
-- アイコン: AppUserModelID(keigoly.MeetingCue)を名乗ってタスクバーで python と分け、WM_SETICON で Meeting Cue! のアイコンを付ける
+- アイコン: AppUserModelID(keigoly.MeetingCue)を名乗ってタスクバーで python と分け、WM_SETICON で Meeting Cue! のアイコンを付ける。
+  スタートメニューのショートカットにも同じ ID を書く(--stamp-shortcut)。書かないと、動いているウィンドウをタスクバーに
+  ピン留めしたとき python.exe(引数なし・python のアイコン)がピン留めされ、以後のウィンドウもその python のアイコンに
+  まとめられる(2026-09-28 keigoly様「再起動しても Python のアイコンが残る」。実物は ID = keigoly.MeetingCue の Python.lnk)
 - 白いメニュー(WinForms の MenuStrip)をやめた。常に手前は画面の右上、終了はウィンドウの ×、ライブ字幕は画面の
   「ライブ字幕」ボタン(写しが window.meetcueHost = {caption: true} で名乗ったときだけ画面が出す。Mac はメニューバーから)
 - タイトルバーを画面の外観にそろえる(DWM の immersive dark mode)。画面の背景の明るさで判断し、外観の変更・OS の変更に追従する
@@ -129,6 +133,59 @@ def set_dark_title(w, dark: bool) -> None:
     ctypes.windll.user32.SetWindowPos(ctypes.c_void_p(hwnd), None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
 
 
+# ---- ショートカットの AppUserModelID(COM を ctypes で呼ぶ)------------------------------------------------------
+class _GUID(ctypes.Structure):
+    _fields_ = [("d1", ctypes.c_uint32), ("d2", ctypes.c_uint16), ("d3", ctypes.c_uint16), ("d4", ctypes.c_ubyte * 8)]
+
+    def __init__(self, s: str):
+        super().__init__()
+        ctypes.windll.ole32.CLSIDFromString(ctypes.c_wchar_p(s), ctypes.byref(self))
+
+
+class _PROPERTYKEY(ctypes.Structure):
+    _fields_ = [("fmtid", _GUID), ("pid", ctypes.c_uint32)]
+
+
+class _PROPVARIANT(ctypes.Structure):   # vt と 16 バイトの値(ここで使うのは VT_LPWSTR = 31 の文字列だけ)
+    _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort), ("r3", ctypes.c_ushort),
+                ("p", ctypes.c_void_p), ("p2", ctypes.c_void_p)]
+
+
+def _com(obj: ctypes.c_void_p, index: int, *argtypes):
+    """COM の vtable の index 番目のメソッド(失敗の HRESULT は OSError になる)。"""
+    vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    return lambda *a: ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, *argtypes)(vtbl[index])(obj, *a)
+
+
+def stamp_shortcut(lnk: Path, aumid: str = AUMID) -> str:
+    """ショートカット(.lnk)に AppUserModelID を書き、読み直した値を返す。ほかの項目(実行先・引数・アイコン)は変えない。"""
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitialize(None)
+    link, pf, ps = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_void_p()
+    key = _PROPERTYKEY(_GUID("{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}"), 5)   # PKEY_AppUserModel_ID
+    hr = ole32.CoCreateInstance(ctypes.byref(_GUID("{00021401-0000-0000-C000-000000000046}")), None, 1,   # ShellLink
+                                ctypes.byref(_GUID("{000214F9-0000-0000-C000-000000000046}")), ctypes.byref(link))
+    if hr != 0:
+        raise OSError(f"CoCreateInstance(ShellLink) 0x{hr & 0xFFFFFFFF:08x}")
+    try:
+        _com(link, 0, ctypes.c_void_p, ctypes.c_void_p)(ctypes.byref(_GUID("{0000010b-0000-0000-C000-000000000046}")), ctypes.byref(pf))
+        _com(pf, 5, ctypes.c_wchar_p, ctypes.c_uint32)(str(lnk), 2)                        # IPersistFile.Load(STGM_READWRITE)
+        _com(link, 0, ctypes.c_void_p, ctypes.c_void_p)(ctypes.byref(_GUID("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")), ctypes.byref(ps))
+        buf = ctypes.create_unicode_buffer(aumid)
+        _com(ps, 6, ctypes.c_void_p, ctypes.c_void_p)(ctypes.byref(key), ctypes.byref(_PROPVARIANT(31, 0, 0, 0, ctypes.addressof(buf), None)))
+        _com(ps, 7)()                                                                          # IPropertyStore.Commit
+        _com(pf, 6, ctypes.c_wchar_p, ctypes.c_int)(None, 1)                                   # IPersistFile.Save(読んだファイルへ)
+        got = _PROPVARIANT()
+        _com(ps, 5, ctypes.c_void_p, ctypes.c_void_p)(ctypes.byref(key), ctypes.byref(got))  # IPropertyStore.GetValue
+        value = ctypes.wstring_at(got.p) if got.vt == 31 and got.p else ""
+        ole32.PropVariantClear(ctypes.byref(got))
+        return value
+    finally:
+        for o in (ps, pf, link):
+            if o.value:
+                _com(o, 2)()                                                                   # Release
+
+
 class Bridge:
     """JS に出すのは post だけ(pywebview は js_api の公開属性をたどって出すので、Host をそのまま渡さない)。"""
 
@@ -228,13 +285,24 @@ def main() -> int:
     for s in (sys.stdout, sys.stderr, sys.stdin):
         s.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="Meeting Cue! の Windows 用ウィンドウ(pywebview)")
-    ap.add_argument("--url", required=True)
+    ap.add_argument("--url")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--window", action="store_true", help="本体のウィンドウ(既定)")
     mode.add_argument("--caption", action="store_true", help="ライブ字幕のウィンドウだけ")
+    mode.add_argument("--stamp-shortcut", metavar="LNK", help="ショートカットにウィンドウと同じ AppUserModelID を書いて終わる")
     ap.add_argument("--width", type=int, default=1180)
     ap.add_argument("--height", type=int, default=760)
     args = ap.parse_args()
+    if args.stamp_shortcut:
+        try:
+            got = stamp_shortcut(Path(args.stamp_shortcut))
+        except OSError as e:
+            diag({"phase": "error", "where": "stamp_shortcut", "lnk": args.stamp_shortcut, "error": str(e)})
+            return 1
+        diag({"phase": "stamped", "lnk": args.stamp_shortcut, "aumid": got, "ok": got == AUMID})
+        return 0 if got == AUMID else 1
+    if not args.url:
+        ap.error("--url が要る(--window / --caption)")
     try:
         import webview
     except ImportError as e:

@@ -223,6 +223,9 @@
   .utt.q::before { background: var(--accent); }
   .utt.q .j { color: var(--accent-text); font-weight: 700; }
   #partial { color: var(--faint); font-style: italic; padding: 5px 10px 5px 62px; min-height: 1.5em; }
+  /* 録音中は新しい発言を上に足す(2026-09-28)。読んでいる位置は画面側で保つので、ブラウザのスクロールの固定は切る */
+  #p-transcript { overflow-anchor: none; }
+  body.reviewing #partial { display: none; }
   /* 回答候補のカード: 頭に「Q」の札・番号は丸・★ は黄色の丸 */
   .card { border: 1.5px solid transparent; border-radius: 18px; padding: 14px 16px 12px; margin: 0 0 14px; background: var(--panel); box-shadow: var(--shadow);
           transition: border-color .6s, box-shadow .6s; }
@@ -391,7 +394,7 @@
     <button class="tab" data-tab="answers">回答<span class="n" id="n-answers">0</span></button>
     <button class="tab" data-tab="summary" id="tab-summary" style="display:none">サマリ</button>
   </div>
-  <section class="pane sel" id="p-transcript"><div id="utts"></div><div id="partial"></div></section>
+  <section class="pane sel" id="p-transcript"><div id="partial"></div><div id="utts"></div></section>
   <section class="pane" id="p-questions">
     <div class="qbar">
       <button class="pill" id="q-now" title="Sonnet が今の会話から考える">今の話で質問を考える</button>
@@ -960,6 +963,13 @@
     $('#utts').innerHTML = ''; $('#partial').textContent = ''; $('#cards').innerHTML = ''; $('#summary').textContent = '';
     utts.clear(); cards.clear(); answersUnread = 0; badge(); clearPlans();
   }
+  // 録音中は新しい発言を上に足し、古いものは下へ流れる(2026-09-28 keigoly様)。録音後の画面は古い順に上から(再生が上から下へ進む)。
+  // 上の方(途中の文字・新しい発言・判定)を変えるときは keepTop で包む: 上端にいれば上端に留め、下の古い発言を読んでいる人の位置は動かさない
+  function keepTop(change) {
+    const pane = $('#p-transcript'), h = pane.scrollHeight, atTop = pane.scrollTop < 60;
+    change();
+    pane.scrollTop = atTop ? 0 : pane.scrollTop + pane.scrollHeight - h;
+  }
   function addUtt(u, atS, j) {
     const pane = $('#p-transcript');
     const keep = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 60;
@@ -967,7 +977,9 @@
     el.className = 'utt ' + u.channel; el.dataset.rid = u.rid;
     el.innerHTML = `<span class="at">${mmss(atS)}</span><span class="who">${u.channel === 'mic' ? '自分' : '相手'}</span>` +
       `<span><span class="tx">${esc(u.text)}</span><div class="j"></div></span>`;
-    $('#utts').appendChild(el); utts.set(u.rid, el);
+    utts.set(u.rid, el);
+    if (view.kind === 'live') { $('#utts').prepend(el); if (j) setJudgment(u.rid, j); return; }   // 位置は呼び手の keepTop が保つ
+    $('#utts').appendChild(el);
     if (j) setJudgment(u.rid, j);
     if (keep) pane.scrollTop = pane.scrollHeight;
   }
@@ -1343,10 +1355,10 @@
   const PARTIAL_STALE_MS = 6000;
   function livePartial(ch, text) {
     if ((text || '').trim().length < 2) return;
-    $('#partial').textContent = `${ch === 'mic' ? '自分' : '相手'}: ${text}`;
+    keepTop(() => { $('#partial').textContent = `${ch === 'mic' ? '自分' : '相手'}: ${text}`; });
     partialAt = Date.now();
   }
-  setInterval(() => { if ($('#partial').textContent && Date.now() - partialAt > PARTIAL_STALE_MS) $('#partial').textContent = ''; }, 1000);
+  setInterval(() => { if ($('#partial').textContent && Date.now() - partialAt > PARTIAL_STALE_MS) keepTop(() => { $('#partial').textContent = ''; }); }, 1000);
 
   // ---- ライブ(SSE) ----
   const handlers = {
@@ -1364,11 +1376,12 @@
       loadList().then(() => { if (view.kind === 'live' || view.id === ev.id) openReview(ev.id); });
       if (nagiOn) toast(ev.summary ? NAGI.savedSummary : NAGI.saved, false, true);
       else toast('録音を保存しました' + (ev.summary ? '(サマリ作成済み)' : '')); },
-    utterance(ev) { if (view.kind !== 'live') return; addUtt(ev, ((ev.t || Date.now()) - (st.started_ms || Date.now())) / 1000); $('#partial').textContent = ''; },
+    utterance(ev) { if (view.kind !== 'live') return;
+      keepTop(() => { addUtt(ev, ((ev.t || Date.now()) - (st.started_ms || Date.now())) / 1000); $('#partial').textContent = ''; }); },
     partial(ev) { if (view.kind === 'live') livePartial(ev.channel, ev.text); },
     judgment(ev) {
       if (view.kind !== 'live') return;
-      setJudgment(ev.rid, ev);
+      keepTop(() => setJudgment(ev.rid, ev));
       if (ev.trigger) {   // 相手からの質問: 回答の生成が最優先(質問タブは待機)。タブは切り替えず、回答タブに件数を出す(2026-09-26)
         qWait = true; qStatus(nagiOn ? NAGI.planWait : '相手の質問に回答中のため、質問タブは待機しています', true);
         nagiLine(card(ev.rid, qtext(ev.rid)), st.llm === 'off' ? NAGI.askedNoLlm : NAGI.asked);
