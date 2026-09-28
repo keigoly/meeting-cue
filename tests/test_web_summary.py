@@ -22,6 +22,8 @@ def test_web_ui_state_events_and_action():
         ui.cue_line("abcd1234", "回答1: 見出し | 骨子 | 根拠: なし")
         st = json.loads(urllib.request.urlopen(ui.url + "api/state", timeout=3).read())
         assert st["mode"] == "presenter"
+        import os
+        assert st["uid"] == getattr(os, "getuid", lambda: None)()   # 本体の持ち主(別の利用者の本体と見分ける・2026-09-28)
         html = urllib.request.urlopen(ui.url, timeout=3).read().decode()
         assert "Meeting Cue!" in html and "EventSource" in html
         req = urllib.request.Request(ui.url + "api/action", data=json.dumps({"action": "toggle_pause"}).encode(),

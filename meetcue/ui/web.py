@@ -11,6 +11,7 @@ bind は 127.0.0.1 固定(外へ出さない)。
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import threading
@@ -35,6 +36,8 @@ STATIC = Path(__file__).resolve().parent / "static"
 # ナギの絵(2026-09-27 見た目 B: 画面の吹き出しの隣に出す)。場面ごとの表情。決まった名前だけ返す(パスを組み立てない)
 NAGI_MOODS = ("idle", "listen", "cue", "think", "done", "alert")
 NAGI_RE = re.compile(r"/nagi/([a-z]+)\.png")
+# 本体の持ち主(/api/state に載せる)。同じ Mac の別の利用者の本体が同じポートにいても見分けられるように(2026-09-28)
+_UID = getattr(os, "getuid", lambda: None)()
 
 
 class WebUI:
@@ -90,7 +93,7 @@ class WebUI:
                     self.send_response(204)
                     self.end_headers()
                 elif self.path == "/api/state":
-                    self._json(200, ui.state)
+                    self._json(200, {**ui.state, "uid": _UID})
                 elif ui.file_route and (fr := ui.file_route(self.path)) is not None:
                     self._file(*fr)
                 elif ui.api and self.path.startswith("/api/") and (r := ui.api("GET", self.path, None)) is not None:

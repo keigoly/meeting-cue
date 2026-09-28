@@ -65,6 +65,10 @@ class Updater:
         self.tree = Path(tree).resolve()
         conf = tomllib.loads((self.tree / "update.toml").read_text(encoding="utf-8"))
         self.app: dict = conf["app"]
+        port = str(self.port())
+        for k in ("version_url", "nudge_url"):   # {port} = アプリの画面のポート(利用者ごと・2026-09-28)
+            if k in self.app:
+                self.app[k] = self.app[k].replace("{port}", port)
         self.mac: dict = conf.get("mac", {})
         self.notify_conf: dict = conf.get("notify", {})
         self.branch: str = self.app["branch"]
@@ -72,6 +76,16 @@ class Updater:
         self.data = Path(home)
         self.rid = rid or os.environ.get("MEETCUE_UPDATE_RID") or uuid.uuid4().hex[:8]
         self.t0 = time.monotonic()
+        self._foreign_logged = False
+
+    def port(self) -> int:
+        """アプリの画面のポート: port_env の値か、port_base + (uid − 501) を 100 で回した値(同じ Mac の利用者ごとに分ける)。
+        アプリ側(meetcue/config.py の default_port・launch.sh・overlay_helper)と同じ決まり。uid の無い OS は port_base。"""
+        base = int(self.app.get("port_base") or 8765)
+        env = os.environ.get(self.app.get("port_env") or "", "")
+        if env.isdigit() and 1024 <= int(env) <= 65535:
+            return int(env)
+        return base + (os.getuid() - 501) % 100 if hasattr(os, "getuid") else base
 
     # ---- 記録 --------------------------------------------------------------------------------
     def log(self, phase: str, ok: bool = True, since: float | None = None, **kw) -> dict:
@@ -210,9 +224,19 @@ class Updater:
     def running(self) -> str:
         try:
             with urllib.request.urlopen(self.app["version_url"], timeout=2) as r:
-                return str(json.loads(r.read()).get("running") or "")
+                v = json.loads(r.read())
         except (OSError, ValueError):
             return ""
+        uid = v.get("uid")
+        if uid is not None and hasattr(os, "getuid") and uid != os.getuid():
+            # 同じ Mac の別の利用者の本体が答えた(2026-09-28)。その版はこの利用者のアプリの版ではないので確かめに使わない。
+            # 記録は 1 回の実行で 1 行だけ
+            if not self._foreign_logged:
+                self._foreign_logged = True
+                self.log("version_foreign", False, url=self.app["version_url"], server_uid=uid, own_uid=os.getuid(),
+                         running=str(v.get("running") or ""))
+            return ""
+        return str(v.get("running") or "")
 
     def nudge(self) -> bool:
         t = time.monotonic()

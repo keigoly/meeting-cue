@@ -7,35 +7,58 @@ stdin(1 行 1 コマンド・本体から): "top on" / "top off" / "caption"(字
 stderr: 診断 JSON(phase=shown / bridge / closed / error)。
 
 画面との橋渡し(REQUIREMENTS FR-12): 画面の HTML は Mac の WKWebView 向けに
-window.webkit.messageHandlers.meetcue.postMessage({cmd, …}) を呼ぶ。同じ名前の写しを差し込み、pywebview の API へつなぐ
-(HTML は変えない)。cmd: top = 常に手前 / main = 本体のウィンドウを前へ / theme・drag = 何もしない(外観は OS に従い、
-枠付きのウィンドウなのでドラッグの範囲も要らない)/ pin = 字幕の固定(クリックを下へ通す)は次の版で、今は常に手前だけ。
-写しは画面の読み込みの後に入るので、読み込みの途中の呼び出し(外観の初期化など)は届かない(どれも何もしない cmd)。
-メニュー: 表示 → ライブ字幕 / 常に手前、Meeting Cue! → 終了(Mac のメニューバーの代わり。タスクトレイは次の版)。
+window.webkit.messageHandlers.meetcue.postMessage({cmd, …}) を呼ぶ。同じ名前の写しを差し込み、pywebview の API へつなぐ。
+cmd: top = 常に手前 / main = 本体のウィンドウを前へ / caption = ライブ字幕のウィンドウを開く / theme = 外観が変わった
+(タイトルバーの色を合わせ直す)/ drag = 何もしない(枠付きのウィンドウなのでドラッグの範囲は要らない)/
+pin = 字幕の固定(クリックを下へ通す)は次の版で、今は常に手前だけ。
+写しは画面の読み込みの後に入るので、読み込みの途中の呼び出しは届かない。代わりに写しが入った時点で外観を測って知らせる。
+
+見た目(2026-09-28 keigoly様「アイコンが出ない・白いメニューがダサい・ちゃんとダークモードに」):
+- アイコン: AppUserModelID(keigoly.MeetingCue)を名乗ってタスクバーで python と分け、WM_SETICON で Meeting Cue! のアイコンを付ける
+- 白いメニュー(WinForms の MenuStrip)をやめた。常に手前は画面の右上、終了はウィンドウの ×、ライブ字幕は画面の
+  「ライブ字幕」ボタン(写しが window.meetcueHost = {caption: true} で名乗ったときだけ画面が出す。Mac はメニューバーから)
+- タイトルバーを画面の外観にそろえる(DWM の immersive dark mode)。画面の背景の明るさで判断し、外観の変更・OS の変更に追従する
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
+import struct
 import sys
 import threading
 import time
 from pathlib import Path
 
 APP_DIR = Path(os.environ.get("MEETCUE_HOME") or (Path.home() / ".meeting-cue"))
+REPO = Path(__file__).resolve().parents[3]
+AUMID = "keigoly.MeetingCue"
+DARK_BG, LIGHT_BG = "#0f1923", "#ffffff"   # 画面が読み込まれるまでのウィンドウの地の色(白く光らせない)
 
-SHIM = """
+SHIM = r"""
 (function () {
-  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.meetcue) return;
   const send = (m) => {
     const go = () => window.pywebview.api.post(m);
     if (window.pywebview && window.pywebview.api && window.pywebview.api.post) go();
     else window.addEventListener('pywebviewready', go, {once: true});
   };
-  window.webkit = window.webkit || {};
-  window.webkit.messageHandlers = window.webkit.messageHandlers || {};
-  window.webkit.messageHandlers.meetcue = {postMessage: send};
+  // 画面の背景の明るさ → タイトルバーの色。背景が透明なら html、それも無ければ OS の設定
+  const bg = (el) => { const v = (getComputedStyle(el).backgroundColor.match(/[\d.]+/g) || []).map(Number);
+                       return v.length >= 3 && (v.length < 4 || v[3] > 0) ? v : null; };
+  const dark = () => { const v = bg(document.body) || bg(document.documentElement);
+                       return v ? (0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]) < 128
+                                : matchMedia('(prefers-color-scheme: dark)').matches; };
+  const appearance = () => setTimeout(() => send({cmd: 'appearance', dark: dark()}), 60);
+  if (!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.meetcue)) {
+    window.webkit = window.webkit || {};
+    window.webkit.messageHandlers = window.webkit.messageHandlers || {};
+    window.webkit.messageHandlers.meetcue = {postMessage: (m) => { send(m); if (m && m.cmd === 'theme') appearance(); }};
+  }
+  window.meetcueHost = {caption: true};          // ライブ字幕のウィンドウを開けるホスト(画面が「ライブ字幕」ボタンを出す)
+  window.dispatchEvent(new Event('meetcue-host'));
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', appearance);
+  appearance();
 })();
 """
 
@@ -43,6 +66,67 @@ SHIM = """
 def diag(fields: dict) -> None:
     sys.stderr.write(json.dumps(dict(fields, t_ms=int(time.time() * 1000)), ensure_ascii=False, sort_keys=True) + "\n")
     sys.stderr.flush()
+
+
+# ---- Win32(ctypes・依存なし)-----------------------------------------------------------------------------
+def system_dark() -> bool:
+    """OS のアプリの外観(設定 → 個人用設定 → 色)がダークか。"""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+            return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+    except OSError:
+        return False
+
+
+def ensure_icon() -> Path | None:
+    """~/.meeting-cue/MeetingCue.ico(setup.ps1 が作る)。無ければ docs/images/icon.png(256 px)を ICO に包んで作る。"""
+    ico = APP_DIR / "MeetingCue.ico"
+    if ico.exists():
+        return ico
+    png = REPO / "docs" / "images" / "icon.png"
+    if not png.exists():
+        return None
+    data = png.read_bytes()
+    ico.parent.mkdir(parents=True, exist_ok=True)
+    ico.write_bytes(struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(data), 22) + data)
+    return ico
+
+
+def _hwnd(w) -> int | None:
+    try:
+        return int(w.native.Handle.ToInt64())
+    except Exception:
+        return None
+
+
+def set_icon(w, ico: Path | None) -> None:
+    """ウィンドウ(タイトルバー・タスクバー・Alt+Tab)のアイコンを Meeting Cue! にする。"""
+    hwnd = _hwnd(w)
+    if not hwnd or not ico:
+        return
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = ctypes.c_void_p
+    user32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+    user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p]
+    for which, metric in ((1, 11), (0, 49)):   # ICON_BIG = SM_CXICON / ICON_SMALL = SM_CXSMICON の大きさで読む
+        size = user32.GetSystemMetrics(metric)
+        h = user32.LoadImageW(None, str(ico), 1, size, size, 0x10)   # IMAGE_ICON・LR_LOADFROMFILE
+        if h:
+            user32.SendMessageW(hwnd, 0x80, which, h)                 # WM_SETICON
+
+
+def set_dark_title(w, dark: bool) -> None:
+    """タイトルバーをダーク / ライトにする(DWMWA_USE_IMMERSIVE_DARK_MODE。古い Windows 10 は 19)。"""
+    hwnd = _hwnd(w)
+    if not hwnd:
+        return
+    val = ctypes.c_int(1 if dark else 0)
+    for attr in (20, 19):
+        if ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(val), 4) == 0:
+            break
+    # 枠を描き直す(SWP_NOMOVE | NOSIZE | NOZORDER | NOACTIVATE | FRAMECHANGED)
+    ctypes.windll.user32.SetWindowPos(ctypes.c_void_p(hwnd), None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
 
 
 class Bridge:
@@ -56,26 +140,34 @@ class Bridge:
 
 
 class Host:
-    """ウィンドウの持ち主。画面(JS)・メニュー・stdin の 3 か所から同じ操作を受ける。"""
+    """ウィンドウの持ち主。画面(JS)と stdin の 2 か所から同じ操作を受ける。"""
 
-    def __init__(self, webview, base_url: str):
+    def __init__(self, webview, base_url: str, icon: Path | None):
         self.webview = webview
         self.base = base_url.rstrip("/")
+        self.icon = icon
         self.main = None
         self.caption = None
         self.top = False
+        self.dark = system_dark()
         self.bridge = Bridge(self)
 
     # 画面からの呼び出し(window.pywebview.api.post → Bridge.post)
     def post(self, m: dict) -> None:
         cmd = (m or {}).get("cmd")
-        diag({"phase": "bridge", "cmd": cmd})
+        if cmd != "appearance":
+            diag({"phase": "bridge", "cmd": cmd})
         if cmd == "top":
             self.set_top(bool(m.get("on")))
         elif cmd == "pin" and self.caption is not None:   # 字幕の固定は次の版。今は常に手前だけ合わせる
             self.caption.on_top = True
         elif cmd == "main":
             self.show_main()
+        elif cmd == "caption":
+            self.open_caption()
+        elif cmd == "appearance" and self.main is not None:
+            self.dark = bool(m.get("dark"))
+            set_dark_title(self.main, self.dark)
 
     def set_top(self, on: bool) -> None:
         self.top = on
@@ -87,6 +179,10 @@ class Host:
             self.main.restore()
             self.main.show()
 
+    def decorate(self, w, dark: bool) -> None:
+        set_icon(w, self.icon)
+        set_dark_title(w, dark)
+
     def open_caption(self) -> None:
         if self.caption is not None:
             self.caption.restore()
@@ -94,9 +190,11 @@ class Host:
             return
         self.caption = self.webview.create_window(
             "Meeting Cue! ライブ字幕", f"{self.base}/caption.html", js_api=self.bridge, width=900, height=240,
-            min_size=(360, 140), on_top=True, text_select=True, background_color="#111111")
-        self.caption.events.loaded += lambda: self._inject(self.caption)
-        self.caption.events.closed += self._caption_closed
+            min_size=(360, 140), on_top=True, text_select=True, background_color=DARK_BG)
+        cap = self.caption
+        cap.events.shown += lambda: self.decorate(cap, True)   # 字幕の画面はいつも暗い
+        cap.events.loaded += lambda: self._inject(cap)
+        cap.events.closed += self._caption_closed
         diag({"phase": "shown", "mode": "caption"})
 
     def _caption_closed(self) -> None:
@@ -112,12 +210,6 @@ class Host:
     def quit(self) -> None:
         for w in list(self.webview.windows):
             w.destroy()
-
-    def menu(self):
-        from webview.menu import Menu, MenuAction, MenuSeparator
-        return [Menu("Meeting Cue!", [MenuAction("終了", self.quit)]),
-                Menu("表示", [MenuAction("ライブ字幕", self.open_caption), MenuSeparator(),
-                              MenuAction("常に手前(切り替え)", lambda: self.set_top(not self.top))])]
 
 
 def read_commands(host: Host) -> None:
@@ -150,18 +242,23 @@ def main() -> int:
               "hint": "packaging\\windows\\setup.ps1 が作るアプリ用の仮想環境の python で動かす"})
         return 7
 
+    try:   # タスクバーで python と分け、Meeting Cue! として並べる(ウィンドウを作る前に)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(AUMID))
+    except (AttributeError, OSError) as e:
+        diag({"phase": "error", "where": "aumid", "error": str(e)})
     url = args.url
     base = url.rsplit("/", 1)[0] if url.endswith(".html") else url
-    host = Host(webview, base)
+    host = Host(webview, base, ensure_icon())
     if args.caption:
         host.open_caption()
-        host.main = None
     else:
-        host.main = webview.create_window("Meeting Cue!", url, js_api=host.bridge, width=args.width, height=args.height,
-                                          min_size=(720, 480), text_select=True, menu=host.menu())
-        host.main.events.loaded += lambda: host._inject(host.main)
+        main_w = host.main = webview.create_window(
+            "Meeting Cue!", url, js_api=host.bridge, width=args.width, height=args.height, min_size=(720, 480),
+            text_select=True, background_color=DARK_BG if host.dark else LIGHT_BG)
+        main_w.events.shown += lambda: host.decorate(main_w, host.dark)
+        main_w.events.loaded += lambda: host._inject(main_w)
         # 本体のウィンドウを閉じたら、字幕のウィンドウも閉じて終わる(本体はこのプロセスの終了でアプリを終える)
-        host.main.events.closed += host.quit
+        main_w.events.closed += host.quit
         diag({"phase": "shown", "mode": "window", "url": url})
     threading.Thread(target=read_commands, args=(host,), daemon=True).start()
     storage = APP_DIR / "webview"   # 画面の localStorage(字幕の設定など)を残す

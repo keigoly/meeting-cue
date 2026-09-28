@@ -14,7 +14,13 @@ set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="${MEETCUE_HOME:-$HOME/.meeting-cue}"
 LAUNCH_DIR="$APP_DIR/launch"
-PORT=8765
+# 画面のポートは利用者ごと: 8765 + (uid − 501) を 100 で回す(最初の利用者は 8765)。MEETCUE_PORT で上書き(アプリのホストが渡す)。
+# 同じ決まりが meetcue/config.py の default_port・overlay_helper・update.toml の {port} にある(2026-09-28)
+if [[ "${MEETCUE_PORT:-}" =~ ^[0-9]+$ ]] && (( MEETCUE_PORT >= 1024 && MEETCUE_PORT <= 65535 )); then
+  PORT="$MEETCUE_PORT"
+else
+  PORT=$(( 8765 + ( ( $(id -u) - 501 ) % 100 + 100 ) % 100 ))
+fi
 # 相手の声は tap-all(Mac 全体の音)。tap:zoom は GUI 本体 1 プロセスしか取らず、Chrome/Meet は helper から音が出るため無音の恐れ(2026-09-25)
 SOURCES=(--source mic --source tap-all)
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -69,7 +75,7 @@ cmd_run() {
     echo "  終了: ウィンドウを閉じる か このウィンドウで Ctrl-C(録音中なら正規に止めてから終わる)"
     echo "  このウィンドウは記録の表示用です。閉じるとアプリも終わります。"
     echo
-    local run=("${py[@]}" app "${SOURCES[@]}")
+    local run=("${py[@]}" app --port "$PORT" "${SOURCES[@]}")
     if [[ "${MEETCUE_DRYRUN:-}" == 1 ]]; then printf '%q ' "${run[@]}"; echo; return 0; fi
     trap ':' INT
     "${run[@]}"
@@ -86,7 +92,7 @@ cmd_run() {
   fi
 
   # shellcheck disable=SC2206 — args は上の固定文字列だけ
-  local run=("${py[@]}" run "${SOURCES[@]}" $args)
+  local run=("${py[@]}" run --port "$PORT" "${SOURCES[@]}" $args)
   echo "Meeting Cue! — $preset"
   echo "  停止: Ctrl-C(終了時に report と summary.md を表示)"
   echo "  ⌃⌥P 一時停止 / ⌃⌥D 深掘り(取りこぼしの印)/ ⌃⌥M モード / ⌃⌥H パネル表示 / ⌃⌥L 固定⇄移動"
@@ -119,13 +125,13 @@ cmd_serve() {
   local log="$APP_DIR/logs/app-$(date +%Y%m%d-%H%M%S).log"
   # uv を挟むと SIGINT の届き方が変わるので、uv が管理する python を直接 exec する(依存は stdlib のみ)
   local py; py="$(uv python find 3.12 2>>"$log")" || { echo "python 3.12 が見つかりません(uv python install 3.12)" >>"$log"; exit 1; }
-  echo "serve: $(date '+%F %T') python=$py sources=${SOURCES[*]}" >>"$log"
+  echo "serve: $(date '+%F %T') python=$py port=$PORT sources=${SOURCES[*]}" >>"$log"
   # 起動で確かめていない版(更新係の印・2026-09-27)があれば、この起動で確かめる。$$ は exec の後の本体と同じ pid。
   # 動けば印を消し、落ちたら更新係が確かめ済みの最後の版へ戻す(packaging/updater/DEVELOPMENT.md)
   if [[ -f "$APP_DIR/updater/unverified" && -f "$REPO/packaging/updater/run.sh" ]]; then
     nohup /bin/bash "$REPO/packaging/updater/run.sh" verify-pending --pid $$ >>"$log" 2>&1 &
   fi
-  exec "$py" -m meetcue.cli app --no-window "${SOURCES[@]}" >>"$log" 2>&1
+  exec "$py" -m meetcue.cli app --no-window --port "$PORT" "${SOURCES[@]}" >>"$log" 2>&1
 }
 
 case "${1:-}" in

@@ -461,3 +461,80 @@ def test_check_skips_while_another_update_holds_the_lock(repos):
         assert got
         assert updater.Updater(run).check() == 0
     assert git(run, "rev-parse", "HEAD") == head and records(home)[-1]["skipped"] == "locked"
+
+
+class _Version(BaseHTTPRequestHandler):
+    body: dict = {}
+
+    def do_GET(self):
+        b = json.dumps(_Version.body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "getuid"), reason="uid は Mac / Linux だけ")
+def test_version_from_another_users_app_is_ignored_and_logged_once(repos):
+    """同じ Mac の別の利用者の本体が答えたら、その版は使わず(確かめに使わない)記録に残す(2026-09-28)。"""
+    import os
+    _, run, home = repos
+    srv = HTTPServer(("127.0.0.1", 0), _Version)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        u = updater.Updater(run)
+        u.app["version_url"] = f"http://127.0.0.1:{srv.server_port}/api/version"
+        _Version.body = {"running": "abc1234", "uid": os.getuid()}
+        assert u.running() == "abc1234"
+        assert not [r for r in records(home) if r["phase"] == "version_foreign"]   # 自分の本体なら何も残さない
+        _Version.body = {"running": "def5678", "uid": os.getuid() + 1}
+        assert u.running() == "" and u.running() == ""                          # 別の利用者の本体の版は使わない
+        foreign = [r for r in records(home) if r["phase"] == "version_foreign"]
+        assert len(foreign) == 1                                                  # 1 回の実行で 1 行だけ
+        assert (foreign[0]["server_uid"], foreign[0]["own_uid"], foreign[0]["running"]) == (os.getuid() + 1, os.getuid(), "def5678")
+    finally:
+        srv.shutdown()
+
+
+def test_app_version_reports_its_owner(repos, monkeypatch):
+    import os
+    _, run, home = repos
+    monkeypatch.setattr(app_mod, "REPO", run)
+    a = App(Config(app_dir=home), sources=[], window=False)
+    assert a._version("")["uid"] == getattr(os, "getuid", lambda: None)()
+
+
+def test_port_is_per_user_and_matches_the_app(repos, monkeypatch):
+    """{port} は利用者ごと(8765 + (uid − 501) を 100 で回す)・MEETCUE_PORT で上書き。アプリ側の default_port と同じ値。"""
+    import os
+    from meetcue import config as config_mod
+    _, run, home = repos
+    toml = (run / "update.toml").read_text(encoding="utf-8").replace(
+        'version_url = "http://127.0.0.1:9/api/version"',
+        'version_url = "http://127.0.0.1:{port}/api/version"\nport_base = 8765\nport_env = "MEETCUE_PORT"')
+    (run / "update.toml").write_text(toml, encoding="utf-8")
+    monkeypatch.delenv("MEETCUE_PORT", raising=False)
+    for uid, want in ((501, 8765), (502, 8766), (500, 8864), (601, 8765)):   # 100 ごとに一回りする
+        monkeypatch.setattr(os, "getuid", lambda uid=uid: uid, raising=False)
+        u = updater.Updater(run)
+        assert u.port() == want == config_mod.default_port()
+        assert u.app["version_url"] == f"http://127.0.0.1:{want}/api/version"
+        assert u.app["nudge_url"] == "http://127.0.0.1:9/api/action"            # {port} の無い URL はそのまま
+    monkeypatch.setenv("MEETCUE_PORT", "9123")
+    assert updater.Updater(run).port() == 9123 == config_mod.default_port()
+    monkeypatch.setenv("MEETCUE_PORT", "80")                                      # 範囲の外は使わない
+    assert updater.Updater(run).port() == 8765 + (os.getuid() - 501) % 100 == config_mod.default_port()
+    monkeypatch.delenv("MEETCUE_PORT")
+    monkeypatch.delattr(os, "getuid", raising=False)                              # uid の無い OS(Windows)
+    assert updater.Updater(run).port() == 8765 == config_mod.default_port()
+
+
+def test_real_update_toml_uses_the_per_user_port():
+    import tomllib
+    conf = tomllib.loads((ROOT / "update.toml").read_text(encoding="utf-8"))["app"]
+    assert "{port}" in conf["version_url"] and "{port}" in conf["nudge_url"]
+    assert conf["port_base"] == 8765 and conf["port_env"] == "MEETCUE_PORT"

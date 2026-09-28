@@ -39,7 +39,7 @@ uv run --python 3.12 --no-project python -m meetcue.cli app            # 手で�
 ## Windows
 
 - **入れる**: `powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\setup.ps1`(README の「セットアップ」)。作るもの: 音声認識の専用環境 `~/.meeting-cue/stt-venv`・モデル `~/.meeting-cue/models/`・ウィンドウの環境 `~/.meeting-cue/app-venv`・スタートメニューの **Meeting Cue!**(`packaging\windows\launch.pyw` を開く)。何度実行しても大丈夫。
-- **開く・閉じる**: スタートメニューの Meeting Cue!。本体のウィンドウを閉じるとアプリも終わる(録音中なら止めて保存してから)。ライブ字幕と「常に手前」はウィンドウのメニュー「表示」から。既に開いているときにもう一度開くと、ウィンドウだけがもう 1 枚開く。
+- **開く・閉じる**: スタートメニューの Meeting Cue!。本体のウィンドウを閉じるとアプリも終わる(録音中なら止めて保存してから)。ライブ字幕と「常に手前」は画面の右上のボタンから(2026-09-28 にウィンドウのメニューをやめた。タイトルバーは画面の外観に合わせてダーク / ライト)。既に開いているときにもう一度開くと、ウィンドウだけがもう 1 枚開く。
 - **音**: 自分 = 既定のマイク、相手 = 既定の出力機器(スピーカー・ヘッドセット)で鳴っている音をまとめて。機器を変えるときは `~/.meeting-cue/config.toml` に `loopback_device = "Headset"` / `mic_device = "USB"`(名前の一部)。機器の一覧は `~/.meeting-cue/stt-venv/Scripts/python.exe helpers/windows/stt_helper/stt_helper.py --list-devices`。マイクが無音のときは Windows の設定(プライバシー → マイク → デスクトップ アプリにアクセスを許可)を確かめる。
 - **API キー**: ⚙ で登録すると Windows の資格情報マネージャー(`local.meetcue/<接続先>`)に入る(画面・ログには出さない)。`~/.secrets/meeting-cue.env` も読める。
 - **記録とログ**: 記録は Mac と同じ `~/.meeting-cue/sessions/`。アプリの出力は `~/.meeting-cue/logs/app-<日時>.log`(20 個まで)。
@@ -76,7 +76,7 @@ uv run --python 3.12 --no-project python -m meetcue.cli index
 # 4. 前提の検査
 uv run --python 3.12 --no-project python -m meetcue.cli doctor --online
 
-# 5. 合成音声で通す(テスト。素材は先に tests/fixtures/make_fixtures.sh で作る)。既定で最前面パネル(overlay)+ ブラウザ用 Web UI(http://127.0.0.1:8765/)が出る
+# 5. 合成音声で通す(テスト。素材は先に tests/fixtures/make_fixtures.sh で作る)。既定で最前面パネル(overlay)+ ブラウザ用 Web UI(http://127.0.0.1:8765/・同じ Mac の 2 人目の利用者は 8766。`MEETCUE_PORT` で変えられる)が出る
 uv run --python 3.12 --no-project python -m meetcue.cli run --source file:tests/fixtures/meeting_ja.aiff:system --mode participant
 
 # 6. 実会議(マイク=自分 + Zoom の出力=相手)

@@ -48,6 +48,7 @@ update_app.sh → run.sh apply: 終了を待つ → git merge --ff-only origin/s
 - 起動で確かめていない版は、次の起動で確かめる(2026-09-27)。起点はアプリの記録の `host_spawn`(本体の pid = `launch.sh` の `$$`・`update.toml` の `spawn_phase`)。起動で確かめていない版が 2 つ続いたら、戻す先は確かめ済みの最後の版(1 つ前の確かめていない版ではない)。アプリを開かないまま次の版が来たら、印はその版に移る。
 - 開き直した直後(版の確認の前)に利用者がアプリを終了したときは、アプリの記録 `host_quit`(`update.toml` の `quit_phase`)を見て確認をやめ、巻き戻さず開き直さない(記録は `verify` の `quit`・`apply` の `verified: false`)。終了の操作で止めた本体の終了(`host_child_exit` の `quitting: true`・SIGINT で status 2 になる)は「落ちた」に数えない。2026-09-27 までは良い版を巻き戻して悪い版にし、終了したアプリを開き直していた。確かめられなかった版は次の起動で確かめる(上の行)。
 - Windows(段 3)は未着手。`fcntl` が無いのでロックは効かない(`msvcrt` で作る)。
+- **同じ Mac の 2 つの利用者(2026-09-28)**: `update.toml` の `version_url` / `nudge_url` は `{port}`(`port_base` + (uid − 501) を 100 で回す・`port_env` で上書き。アプリ側と同じ決まり)。以前は 8765 固定で、もう 1 人の利用者のアプリが裏で動いていると、その本体の版を読み合図もそちらへ送っていた。`/api/version` と `/api/state` は本体の持ち主 `uid` を返し、更新係は別の利用者の本体の版を使わない(`running` は空・記録 `version_foreign` を 1 回の実行で 1 行)。
 
 ## 3. バグ修正時の手順(user CLAUDE.md の Step 1〜3)
 

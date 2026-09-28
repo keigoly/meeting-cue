@@ -15,6 +15,18 @@ from .segmenter import SegmenterConfig
 HOME = Path.home()
 APP_DIR = Path(os.environ.get("MEETCUE_HOME") or (HOME / ".meeting-cue"))
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PORT_BASE = 8765
+
+
+def default_port() -> int:
+    """画面(Web UI)のポート。同じ Mac の利用者ごとに分ける: 8765 + (uid − 501) を 100 で回す(最初の利用者 501 は 8765 のまま)。
+    MEETCUE_PORT で上書きできる。uid の無い Windows は 8765。同じ決まりが packaging/launch.sh・overlay_helper(Swift)・
+    更新係(update.toml の {port})にもある(2026-09-28: 固定の 8765 だと、もう 1 人の利用者の本体につながり記録が混ざった)。"""
+    env = os.environ.get("MEETCUE_PORT", "")
+    if env.isdigit() and 1024 <= int(env) <= 65535:
+        return int(env)
+    uid = getattr(os, "getuid", lambda: None)()
+    return PORT_BASE if uid is None else PORT_BASE + (uid - 501) % 100
 
 
 @dataclass

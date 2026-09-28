@@ -18,7 +18,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 APP_DIR = Path(os.environ.get("MEETCUE_HOME") or (Path.home() / ".meeting-cue"))
 PY = Path(sys.executable).with_name("python.exe")   # pythonw.exe の隣の python.exe
-PORT = 8765
+# 本体の meetcue.config.default_port() と同じ決まり: MEETCUE_PORT があればそれ、無ければ 8765(Windows は uid が無い)
+_env_port = os.environ.get("MEETCUE_PORT", "")
+PORT = int(_env_port) if _env_port.isdigit() and 1024 <= int(_env_port) <= 65535 else 8765
 CREATE_NO_WINDOW = 0x08000000
 
 

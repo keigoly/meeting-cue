@@ -352,7 +352,7 @@
     <span class="sp"></span>
     <div class="seg" id="pl-ch"><button data-v="both" class="sel">両方</button><button data-v="system">スピーカー</button><button data-v="mic">マイク</button></div>
     <span class="sp"></span>
-    <button class="pill" id="topbtn" title="全画面の会議アプリの上にも出す"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v6"/><path d="M8 3h8l-1.5 5.5L18 12v1H6v-1l3.5-3.5z"/></svg>常に手前</button>
+    <button class="pill" id="topbtn" title="全画面の会議アプリの上にも出す"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v6"/><path d="M8 3h8l-1.5 5.5L18 12v1H6v-1l3.5-3.5z"/></svg>常に手前</button><button class="pill" id="capbtn" title="ライブ字幕のウィンドウを開く" style="display:none"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10h4M14 10h3M7 14h7"/></svg>ライブ字幕</button>
     <div id="recgroup" class="split">
       <button class="pill" id="recbtn"><span class="dot"></span><span id="reclabel">録音を開始</span></button>
       <button class="pill" id="recmore" title="すぐに録音を始める(題名と立場を選ばない)" aria-haspopup="menu"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
@@ -1416,6 +1416,10 @@
     window.webkit?.messageHandlers?.meetcue?.postMessage({cmd: 'top', on});   // Meeting Cue!.app のウィンドウへ直接
     action('top', {on});                                                      // 状態の記録(デバッグ起動では helper へ)
   };
+  // ライブ字幕の入口(2026-09-28): 字幕のウィンドウを開けるホスト(Windows のウィンドウ)が名乗ったときだけ出す。Mac はメニューバーから開く
+  const showCaptionEntry = () => { if (window.meetcueHost?.caption) $('#capbtn').style.display = ''; };
+  window.addEventListener('meetcue-host', showCaptionEntry); showCaptionEntry();
+  $('#capbtn').onclick = () => window.webkit?.messageHandlers?.meetcue?.postMessage({cmd: 'caption'});
   $('#opsbtn').onclick = (e) => { e.stopPropagation(); $('#opsmenu').classList.toggle('open'); };
   document.addEventListener('click', () => { $('#opsmenu').classList.remove('open'); $('#recmenu').classList.remove('open'); });
   // クイック録音(2026-09-27): 題名と立場を選ばずにすぐ始める(メニューバーの「録音を開始」と同じ = 会議に参加・題名なし)

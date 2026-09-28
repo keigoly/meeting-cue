@@ -8,8 +8,10 @@ display_name = "Meeting Cue!"                        # 通知の題
 branch = "stable"                                    # 両方の OS の試験に合格したコミットだけが進む(.github/workflows/ci.yml)
 data_dir = "~/.meeting-cue"                          # 記録 logs/updater-<日付>.jsonl・巻き戻した版 updater/bad
 data_env = "MEETCUE_HOME"                            # 試験ではこの環境変数で data_dir を差し替える
-version_url = "http://127.0.0.1:8765/api/version"    # 版: running = 動いているコミット
-nudge_url = "http://127.0.0.1:8765/api/action"       # 「今すぐ確認して」: POST {"action": "update_check"}(いつ入れるかはアプリが決める)
+version_url = "http://127.0.0.1:{port}/api/version"  # 版: running = 動いているコミット・uid = 本体の持ち主
+nudge_url = "http://127.0.0.1:{port}/api/action"     # 「今すぐ確認して」: POST {"action": "update_check"}(いつ入れるかはアプリが決める)
+port_base = 8765                                     # {port} = port_base + (uid − 501) を 100 で回す(利用者ごと・最初の利用者は 8765)
+port_env = "MEETCUE_PORT"                            # あればこちら。同じ決まりがアプリ側(config.py・launch.sh・overlay_helper)にもある(2026-09-28)
 check_interval_s = 60                                # stable を確かめる間隔(launchd)。mini から各機械へは Tailscale の決まりで入れないため、合図の代わりに 1 分おき
 
 [mac]

@@ -28,6 +28,14 @@ import ServiceManagement
 import SwiftUI
 import WebKit
 
+/// 画面のポート(利用者ごと・2026-09-28): 8765 + (uid − 501) を 100 で回す(最初の利用者は 8765)。MEETCUE_PORT で上書き。
+/// 同じ決まりが meetcue/config.py の default_port・packaging/launch.sh・update.toml の {port} にある。固定の 8765 だと、
+/// 同じ Mac のもう 1 人の利用者の本体が裏で動いているとき、そちらにつながり記録が混ざった
+func defaultPort() -> Int {
+    if let s = ProcessInfo.processInfo.environment["MEETCUE_PORT"], let p = Int(s), (1024...65535).contains(p) { return p }
+    return 8765 + ((Int(getuid()) - 501) % 100 + 100) % 100
+}
+
 func diag(_ fields: [String: Any]) {
     var f = fields
     f["t_ms"] = Int(Date().timeIntervalSince1970 * 1000)
@@ -793,6 +801,7 @@ final class Host: NSObject, NSApplicationDelegate {
     private var accent = MenuState().accent   // 画面の基本色(⚙ で変えられる)。パネルを開くたびに /api/settings から読む
     private var startedMs: Double?            // 録音の開始(パネルの経過時間)
     private(set) var caption: Overlay?   // ライブ字幕(半透明の最前面パネル)
+    private var foreignOwner: Int?       // このポートの本体が別の利用者のもの(uid)。見つけたら状態の確認も操作も送らない
 
     init(script: String, url: URL) {
         self.script = script
@@ -802,11 +811,15 @@ final class Host: NSObject, NSApplicationDelegate {
     func start() {
         gOverlay?.showMessage("起動しています…", "Meeting Cue! の本体を起動しています。")
         DispatchQueue.global().async {
-            if self.serverUp() {   // デバッグ起動の本体が既に動いている → つなぐだけ(閉じても本体は止めない)
+            switch self.server() {
+            case .own:   // デバッグ起動の本体が既に動いている → つなぐだけ(閉じても本体は止めない)
+                diag(["phase": "host_attach", "port": self.url.port ?? 0])
                 DispatchQueue.main.async { gOverlay?.load(self.url) }
-                return
+            case .foreign(let uid):   // 別の利用者の本体がこのポートにいる → つながない(記録が混ざる)
+                self.refuseForeign(uid)
+            case .down:
+                DispatchQueue.main.async { self.spawn() }
             }
-            DispatchQueue.main.async { self.spawn() }
         }
     }
 
@@ -814,6 +827,9 @@ final class Host: NSObject, NSApplicationDelegate {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = [script, "serve"]
+        var env = ProcessInfo.processInfo.environment
+        env["MEETCUE_PORT"] = String(url.port ?? defaultPort())   // launch.sh serve が同じポートで本体を起こす
+        p.environment = env
         p.standardInput = FileHandle.nullDevice
         p.terminationHandler = { pr in
             // main queue ではなく run loop に積む(2026-09-27): main queue のブロックの中から終了(terminateLater)に入ると、
@@ -833,9 +849,15 @@ final class Host: NSObject, NSApplicationDelegate {
             let deadline = Date().addingTimeInterval(90)
             while Date() < deadline {
                 if self.child?.isRunning != true { return }
-                if self.serverUp() {
+                switch self.server() {
+                case .own:
                     DispatchQueue.main.async { gOverlay?.load(self.url) }
                     return
+                case .foreign(let uid):
+                    self.refuseForeign(uid)
+                    return
+                case .down:
+                    break
                 }
                 Thread.sleep(forTimeInterval: 0.3)
             }
@@ -845,17 +867,33 @@ final class Host: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func serverUp() -> Bool {
+    enum Server { case down, own, foreign(Int) }
+
+    /// このポートの本体の有無と持ち主(/api/state の uid・2026-09-28)。uid の無い古い本体は自分のものとみなす
+    private func server() -> Server {
         var req = URLRequest(url: url.appendingPathComponent("api/state"))
         req.timeoutInterval = 1
         let sem = DispatchSemaphore(value: 0)
-        var ok = false
-        URLSession.shared.dataTask(with: req) { _, resp, _ in
-            ok = (resp as? HTTPURLResponse)?.statusCode == 200
+        var result = Server.down
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                if let uid = obj?["uid"] as? Int, uid != Int(getuid()) { result = .foreign(uid) } else { result = .own }
+            }
             sem.signal()
         }.resume()
         _ = sem.wait(timeout: .now() + 1.5)
-        return ok
+        return result
+    }
+
+    private func refuseForeign(_ uid: Int) {
+        let port = url.port ?? 0
+        DispatchQueue.main.async { self.foreignOwner = uid }
+        diag(["phase": "host_attach_refused", "port": port, "server_uid": uid, "own_uid": Int(getuid())])
+        DispatchQueue.main.async {
+            gOverlay?.showMessage("別の利用者の Meeting Cue! が動いています",
+                                  "ポート \(port) を、この Mac の別の利用者(uid \(uid))の Meeting Cue! が使っています。記録が混ざらないよう、つなぎません。そちらのアプリを終了してから開き直してください。")
+        }
     }
 
     private func childExited(_ status: Int32) {
@@ -952,6 +990,7 @@ final class Host: NSObject, NSApplicationDelegate {
     }
 
     private func pollState() {
+        if foreignOwner != nil { return }   // 別の利用者の本体とはやり取りしない(2026-09-28)
         var req = URLRequest(url: url.appendingPathComponent("api/state"))
         req.timeoutInterval = 1
         URLSession.shared.dataTask(with: req) { data, _, _ in
@@ -983,6 +1022,7 @@ final class Host: NSObject, NSApplicationDelegate {
 
     /// ⚙ の基本色(colors.accent)を読み、変わっていれば開いているパネルを描き直す。
     private func fetchAccent() {
+        if foreignOwner != nil { return }   // 別の利用者の本体とはやり取りしない(2026-09-28)
         var req = URLRequest(url: url.appendingPathComponent("api/settings"))
         req.timeoutInterval = 1
         URLSession.shared.dataTask(with: req) { data, _, _ in
@@ -1101,6 +1141,7 @@ final class Host: NSObject, NSApplicationDelegate {
     }
 
     private func post(_ body: [String: Any]) {
+        if foreignOwner != nil { return }   // 別の利用者の本体とはやり取りしない(2026-09-28)
         var req = URLRequest(url: url.appendingPathComponent("api/action"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1133,6 +1174,7 @@ final class Host: NSObject, NSApplicationDelegate {
     /// ライブ字幕: 文字起こしと回答候補を流す半透明の最前面パネル(/index.html・全画面の会議アプリの上にも出る)。
     /// ⌃⌥L でクリック透過の固定 ⇄ 移動、⌃⌥H で表示/非表示。
     @objc func toggleCaption() {
+        if foreignOwner != nil { return }   // 別の利用者の本体とはやり取りしない(2026-09-28)
         if let c = caption {
             c.panel.close()   // windowWillClose → captionClosed
             return
@@ -1177,6 +1219,7 @@ final class Host: NSObject, NSApplicationDelegate {
     }
 
     private func checkUpdate(manual: Bool) {
+        if foreignOwner != nil { return }   // 別の利用者の本体とはやり取りしない(2026-09-28)
         let build = Bundle.main.object(forInfoDictionaryKey: "MeetcueBuildCommit") as? String ?? ""
         var comps = URLComponents(url: url.appendingPathComponent("api/version"), resolvingAgainstBaseURL: false)
         comps?.queryItems = [URLQueryItem(name: "app", value: build)]
@@ -1382,7 +1425,7 @@ struct OverlayHelper {
         }
         let hostScript = Bundle.main.object(forInfoDictionaryKey: "MeetcueLaunchScript") as? String
         gRelaunch = ["bg", "hidden"].contains(opt("--relaunch", "")) ? opt("--relaunch", "") : ""
-        guard let url = URL(string: opt("--url", "http://127.0.0.1:8765/")) else { diag(["phase": "abort", "reason": "bad_url"]); exit(2) }
+        guard let url = URL(string: opt("--url", "http://127.0.0.1:\(defaultPort())/")) else { diag(["phase": "abort", "reason": "bad_url"]); exit(2) }
         let window = args.contains("--window") || hostScript != nil
         let captionOnly = hostScript == nil && args.contains("--caption")   // ライブ字幕のウィンドウだけ(確かめる用・--url は caption.html)
         let width = CGFloat(Double(opt("--width", window ? "1180" : "980")) ?? 980)
@@ -1393,7 +1436,7 @@ struct OverlayHelper {
         let app = NSApplication.shared
         if let hostScript {
             openHostLog()
-            diag(["phase": "host_start", "pid": getpid(),
+            diag(["phase": "host_start", "pid": getpid(), "port": url.port ?? 0,
                   "build": Bundle.main.object(forInfoDictionaryKey: "MeetcueBuildCommit") as? String ?? "", "script": hostScript])
             app.setActivationPolicy(.regular)     // Dock に出る通常のアプリ
             gHost = Host(script: hostScript, url: url)

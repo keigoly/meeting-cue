@@ -10,7 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import __version__
-from .config import Config, load_config
+from .config import Config, default_port, load_config
 from .metrics import percentiles
 from .secrets import openrouter_key
 
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--vault", help="Vault のルート(config を上書き)")
     r.add_argument("--ui", choices=("terminal", "web", "overlay"), default="overlay",
                    help="terminal | web(ターミナル + ブラウザ)| overlay(+ 最前面パネル。既定)")
-    r.add_argument("--port", type=int, default=8765, help="Web UI のポート(127.0.0.1 固定)")
+    r.add_argument("--port", type=int, default=default_port(), help="Web UI のポート(127.0.0.1 固定・既定は利用者ごと)")
     r.add_argument("--no-hotkeys", action="store_true", help="グローバルホットキーを使わない")
     r.add_argument("--hotkey-emit", help="テスト用: 'pause@2,deepdive@4' を秒後に自動発火")
     r.add_argument("--no-summary", action="store_true", help="終了時の summary.md を作らない")
@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     ap_.add_argument("--fast", action="store_true", help="fast_model(Haiku)を使う")
     ap_.add_argument("--no-llm", action="store_true", help="生成しない(判定と検索だけ)")
     ap_.add_argument("--pace", type=float, help="file 音源の再生倍速(テスト用)")
-    ap_.add_argument("--port", type=int, default=8765, help="Web UI のポート(127.0.0.1 固定)")
+    ap_.add_argument("--port", type=int, default=default_port(), help="Web UI のポート(127.0.0.1 固定・既定は利用者ごと)")
     ap_.add_argument("--no-window", action="store_true", help="ウィンドウを出さない(ブラウザで開く・テスト用)")
     ap_.add_argument("--no-summary", action="store_true", help="停止時の summary.md を作らない")
     ap_.add_argument("--no-record", action="store_true", help="音声を保存しない(既定は保存・録音後に再生できる)")

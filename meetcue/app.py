@@ -25,7 +25,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from . import captions, library
-from .config import Config
+from .config import Config, default_port
 from .metrics import Metrics
 from . import providers, secrets
 from .cues import claude_cli, llm, openai_direct
@@ -90,7 +90,7 @@ class _CaptionTap:
 
 
 class App:
-    def __init__(self, cfg: Config, *, sources: list[Source], port: int = 8765, window: bool = True,
+    def __init__(self, cfg: Config, *, sources: list[Source], port: int | None = None, window: bool = True,
                  model: str | None = None, llm_enabled: bool = True, summary: bool = True):
         self.cfg = cfg
         self.sources = sources
@@ -99,7 +99,7 @@ class App:
         self.llm_enabled = llm_enabled
         self.summary = summary
         self.term = TerminalUI(show_partials=False)
-        self.web = WebUI(port=port, page="app.html")
+        self.web = WebUI(port=port or default_port(), page="app.html")
         self.web.on_action_body = self._action_threadsafe
         self.web.api = self._api
         self.web.file_route = self._file_route
@@ -415,7 +415,8 @@ class App:
                 "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
                 "date": _git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M", head),
                 "blocked": blocked[:7],
-                "recording": bool(self._task and not self._task.done())}
+                "recording": bool(self._task and not self._task.done()),
+                "uid": getattr(os, "getuid", lambda: None)()}   # 本体の持ち主(同じ Mac の別の利用者の本体と見分ける・2026-09-28)
 
     def _file_route(self, path: str):
         """GET /api/sessions/<id>/audio/<channel>.m4a → 録音した音声(Range 対応は WebUI 側)。"""
