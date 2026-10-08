@@ -20,6 +20,7 @@ from meetcue.pipeline import Source, helper_hint
 REPO = Path(__file__).resolve().parents[1]
 HELPER = REPO / "helpers" / "windows" / "stt_helper" / "stt_helper.py"
 WAV = REPO / "tests" / "fixtures" / "wav" / "statement_ja.wav"
+LONG_WAV = REPO / "tests" / "fixtures" / "wav" / "long_ja.wav"
 
 
 def test_argv_windows_runs_helper_with_its_own_python(tmp_path):
@@ -75,3 +76,29 @@ def test_real_helper_speaks_the_contract():
     diags = [json.loads(l) for l in p.stderr.decode("utf-8").splitlines() if l.startswith("{")]
     assert any(d.get("phase") == "level" for d in diags)
     assert any(d.get("phase") == "asset_ready" for d in diags)
+
+
+@pytest.mark.skipif(not _real_helper_ready(), reason="専用の仮想環境・モデル・合成音声がそろう Windows でだけ")
+def test_real_helper_closes_the_recording_before_the_remaining_recognition(tmp_path, monkeypatch):
+    """止めたときは録音を認識より先に閉じる(2026-10-08: 認識が溜まったまま止めて強制終了され、m4a に目次が書かれず
+    録音が丸ごと聞けなくなった)。60 s を一度に渡して認識の途中で止め、待ちを 0.5 s に縮めても m4a が閉じていること。"""
+    import asyncio
+    from meetcue.stt_reader import STTHelper
+    monkeypatch.setattr(STTHelper, "QUIT_WAIT_S", 0.5)
+    cfg = Config()
+    out = tmp_path / "rec.m4a"
+    diags: list[dict] = []
+
+    async def main() -> None:
+        h = STTHelper([str(cfg.stt_python), str(HELPER), "--channel", "system", "--file", str(LONG_WAV), "--pace", "0",
+                       "--record", str(out)], channel="system", on_diag=diags.append)
+        await h.start()
+        async for ev in h.events():
+            if ev.get("type") == "ready":
+                break
+        await asyncio.sleep(1.0)   # 60 s が一度に届き、残りの区間を認識している最中に止める
+        await h.stop()
+
+    asyncio.run(main())
+    assert any(d.get("phase") == "record_done" for d in diags)
+    assert b"moov" in out.read_bytes()

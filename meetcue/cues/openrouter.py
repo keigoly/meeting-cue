@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterator
 
 DEFAULT_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "anthropic/claude-sonnet-5"
-FAST_MODEL = "anthropic/claude-haiku-4.5"
+DEFAULT_MODEL = "anthropic/claude-haiku-5.5"   # 2026-10-08 keigoly様: 既定を Haiku 5.5 に(以前は Sonnet 5)
+FAST_MODEL = "anthropic/claude-haiku-5.5"
 DEFAULT_TIMEOUT_S = 60
 
 DEFAULT_IGNORE_PROVIDERS = ("DeepSeek", "Z.AI", "Alibaba", "Baidu", "SiliconFlow", "StreamLake")

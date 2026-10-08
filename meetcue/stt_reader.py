@@ -13,6 +13,12 @@ from typing import AsyncIterator, Callable, Optional
 
 
 class STTHelper:
+    QUIT_WAIT_S = 3.0
+    # 録音(record_start)を閉じ終える(record_done)前に強制終了すると、m4a の目次が書かれず録音が丸ごと聞けなくなる
+    # (2026-10-08 Windows: 本体が止まって認識が 14 分溜まり、3 s で強制終了された)。閉じ終えていなければここまで待つ。
+    # 溜まった 880 s の音声の書き出しが 4.2 s
+    RECORD_GRACE_S = 15.0
+
     def __init__(self, argv: list[str], *, channel: str,
                  on_diag: Optional[Callable[[dict], None]] = None):
         self.argv = list(argv)
@@ -21,6 +27,8 @@ class STTHelper:
         self.proc: Optional[asyncio.subprocess.Process] = None
         self._stderr_task: Optional[asyncio.Task] = None
         self.ready: dict | None = None
+        self.recording = False   # record_start を受けて record_done / record_error をまだ受けていない
+        self._record_closed = asyncio.Event()
 
     async def start(self) -> None:
         self.proc = await asyncio.create_subprocess_exec(
@@ -39,12 +47,20 @@ class STTHelper:
         assert self.proc and self.proc.stderr
         async for raw in self.proc.stderr:
             line = raw.decode("utf-8", "replace").strip()
-            if not line or self.on_diag is None:
+            if not line:
                 continue
             try:
-                self.on_diag(json.loads(line))
+                d = json.loads(line)
             except json.JSONDecodeError:
-                self.on_diag({"raw": line})
+                d = {"raw": line}
+            phase = d.get("phase") if isinstance(d, dict) else None
+            if phase == "record_start":
+                self.recording = True
+            elif phase in ("record_done", "record_error"):
+                self.recording = False
+                self._record_closed.set()
+            if self.on_diag is not None:
+                self.on_diag(d)
 
     async def events(self) -> AsyncIterator[dict]:
         assert self.proc and self.proc.stdout
@@ -73,14 +89,21 @@ class STTHelper:
         await self.send("finalize")
 
     async def stop(self) -> None:
-        """quit → 3 秒待つ → SIGTERM → 2 秒 → SIGKILL。マイク・タップを確実に解放する。"""
+        """quit → 3 秒待つ(録音を閉じ終えていなければ RECORD_GRACE_S まで)→ SIGTERM → 2 秒 → SIGKILL。マイク・タップを確実に解放する。"""
         if not self.proc:
             return
         if self.proc.returncode is None:
             await self.send("quit")
             try:
-                await asyncio.wait_for(self.proc.wait(), timeout=3)
+                await asyncio.wait_for(self.proc.wait(), timeout=self.QUIT_WAIT_S)
             except asyncio.TimeoutError:
+                if self.recording:
+                    try:
+                        await asyncio.wait_for(self._record_closed.wait(), timeout=self.RECORD_GRACE_S)
+                        await asyncio.wait_for(self.proc.wait(), timeout=0.5)   # 閉じた後に自分で終われば強制しない
+                    except asyncio.TimeoutError:
+                        pass
+            if self.proc.returncode is None:
                 self.proc.terminate()
                 try:
                     await asyncio.wait_for(self.proc.wait(), timeout=2)

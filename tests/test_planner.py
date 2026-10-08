@@ -103,7 +103,7 @@ def test_question_preempts_planner_and_cooldown(tmp_path, monkeypatch):
     cues = [json.loads(line) for line in (session.dir / "cues.jsonl").read_text(encoding="utf-8").splitlines()]
     assert any(c["kind"] == "plan" and c["error"] == "cancelled" and c["items"][0]["question"] == "期限はいつですか"
                for c in cues)
-    assert [c for c in calls if c[0] == "plan"][0][1] == "anthropic/claude-sonnet-5"   # 自動は Sonnet
+    assert [c for c in calls if c[0] == "plan"][0][1] == "anthropic/claude-haiku-5.5"   # 自動は Haiku 5.5(2026-10-08)
 
 
 def test_manual_request_waits_for_answers_then_runs_deep_on_opus(tmp_path, monkeypatch):
@@ -132,8 +132,36 @@ def test_manual_request_waits_for_answers_then_runs_deep_on_opus(tmp_path, monke
         await p._plan_task
     asyncio.run(run())
     models = [m for kind, m in calls if kind == "plan"]
-    assert models == ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5"]
+    assert models == ["anthropic/claude-opus-5.5", "anthropic/claude-haiku-5.5"]
     assert any("回答を優先しています" in str(a) for name, a in p.ui.events if name == "status")
+
+
+def test_mid_replaces_running_auto_and_uses_sonnet(tmp_path, monkeypatch):
+    """2026-10-08: 「少し深く(Sonnet)」は自動の途中でも差し替え、Sonnet 5.5 を reasoning low で呼ぶ(Haiku → Sonnet → Opus)。"""
+    calls, reasoning = [], []
+    base = _fake_stream(calls)
+
+    def stream_chat(messages, **kw):
+        reasoning.append(kw.get("reasoning"))
+        return base(messages, **kw)
+    monkeypatch.setattr(openrouter, "stream_chat", stream_chat)
+    p, session = _pipeline(tmp_path)
+
+    async def run():
+        p._maybe_plan()                                  # 自動(Haiku)で考え始める
+        await asyncio.sleep(0.05)
+        p.action("plan_mid")                             # 少し深く → 自動を打ち切って差し替える
+        assert p._plan_pending == "mid"
+        await asyncio.wait_for(p._plan_task, 1)
+        await asyncio.sleep(0.05)
+        assert p._plan_task and not p._plan_task.done() and p._plan_pending is None
+        p._plan_stop.set()
+        await p._plan_task
+    asyncio.run(run())
+    assert [m for kind, m in calls if kind == "plan"] == ["anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5"]
+    assert reasoning == [None, {"effort": "low"}]
+    plans = [r for r in _phases(session) if r["phase"] == "plan_start"]
+    assert [r["trigger"] for r in plans] == ["auto", "mid"]
 
 
 def test_openrouter_body_reasoning(monkeypatch):

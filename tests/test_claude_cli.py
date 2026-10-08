@@ -152,11 +152,18 @@ def test_llm_target_claude_cli(fake):
     pool = claude_cli.Pool(cli, tmp / "cwd")
     try:
         t = llm.target_for(Config(), "claude-cli", claude_cli.MARKER, {"_pool": pool})
-        assert (t.provider, t.model, t.fast_model, t.deep_model) == ("claude-cli", "claude-sonnet-5", "claude-haiku-4-5",
-                                                                     "claude-opus-5-5")
+        assert (t.provider, t.model, t.fast_model, t.mid_model, t.deep_model) == (
+            "claude-cli", "claude-haiku-5-5", "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5")   # 2026-10-08
         r = llm.stream(t, [{"role": "user", "content": "x"}], role="fast")
         assert r.ok and r.cost_usd is None                                  # プランの利用枠(API の台帳に数えない)
-        assert spawns()[-1][spawns()[-1].index("--model") + 1] == "claude-haiku-4-5"
+        args = spawns()[-1]
+        assert args[args.index("--model") + 1] == "claude-haiku-5-5" and args[args.index("--effort") + 1] == "low"
+        assert args[args.index("--system-prompt") + 1] == claude_cli.FAST_SYSTEM   # 速い役は起動時の system にも一文
+        assert llm.warm_key(t) == ("claude-haiku-5-5", "low", True)         # 温めるプロセスも同じ鍵(take と揃える)
+        llm.stream(t, [{"role": "user", "content": "x"}], role="mid", effort="low")
+        args = spawns()[-1]
+        assert args[args.index("--model") + 1] == "claude-sonnet-5-5" and args[args.index("--effort") + 1] == "low"
+        assert args[args.index("--system-prompt") + 1] == claude_cli.SYSTEM   # 深掘りは考えさせる
     finally:
         pool.close()
 

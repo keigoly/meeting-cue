@@ -3,7 +3,7 @@
 - 録音中は Pipeline が partial / utterance を配るので、字幕の画面(caption.html)はそれを使う。
 - 録音していない間は CaptionRunner が同じ STT ヘルパー(スピーカー = tap-all・マイク = stt-helper)を**保存なし**で動かし、
   `caption` イベント(phase = partial / final)を配る。記録・判定・生成はしない。画面が開いている間だけ動かす(借用)。
-- Translator: 確定した字幕を 1 行ずつ生成 AI で訳し、`caption_tr` を配る(Claude サブスクなら Sonnet)。
+- Translator: 確定した字幕を 1 行ずつ生成 AI で訳し、`caption_tr` を配る(回答と同じ main の役 = 既定は Haiku 5.5)。
   LOCAL の録音中・AI の生成をオフにしているときは訳さない(外へ送らない約束を守る)。
 
 記録は ~/.meeting-cue/logs/captions-<日付>.jsonl(phase = caption_start / caption_stop / caption_error / caption_tr /

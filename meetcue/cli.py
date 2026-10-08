@@ -97,18 +97,18 @@ def cmd_app(a: argparse.Namespace) -> int:
 
 
 def cmd_index(a: argparse.Namespace) -> int:
+    from .knowledge import obsidian
     from .knowledge.index import VaultIndex
 
     cfg = load_config(Path(a.config) if a.config else None)
-    root = Path(a.vault).expanduser() if a.vault else cfg.vault_root
+    root = Path(a.vault).expanduser() if a.vault else obsidian.effective_vault_root(cfg)   # 設定画面 → config.toml
     if not root.exists():
-        print(f"Vault が無い: {root}(config.toml の vault_root か --vault)", file=sys.stderr)
+        print(f"Vault が無い: {root}(⚙ の Obsidian・config.toml の vault_root か --vault)", file=sys.stderr)
         return 2
+    cfg.index.exclude = list(cfg.index.exclude) + list(a.exclude or [])
+    st = obsidian.build_index(cfg, root, full=a.full)
     idx = VaultIndex(cfg.index_db)
-    exclude = list(cfg.index.exclude) + list(a.exclude or [])
-    st = idx.build(root, include=tuple(cfg.index.include), exclude=tuple(exclude),
-                   chunk_chars=cfg.index.chunk_chars, full=a.full)
-    print(json.dumps({"build": st, "index": idx.stats(), "db": str(cfg.index_db)}, ensure_ascii=False))
+    print(json.dumps({"build": st, "db": str(cfg.index_db)}, ensure_ascii=False))
     if a.query:
         from .knowledge.index import query_terms
         terms = query_terms(a.query)
@@ -142,7 +142,9 @@ def cmd_doctor(a: argparse.Namespace) -> int:
         for name in ("stt_helper/stt-helper", "tap_helper/tap-helper"):
             p = cfg.helpers_dir / name
             row(f"helper {name}", p.exists(), str(p) if p.exists() else f"無い → cd helpers/macos && make")
-    row("vault", cfg.vault_root.exists(), str(cfg.vault_root))
+    from .knowledge import obsidian
+    vault = obsidian.effective_vault_root(cfg)   # 設定画面(ui.json)→ config.toml
+    row("vault", vault.exists(), str(vault))
     if cfg.index_db.exists():
         from .knowledge.index import VaultIndex
         row("index", True, json.dumps(VaultIndex(cfg.index_db).stats()))

@@ -1,6 +1,7 @@
 """秘密の読み込み。API キーは Mac のキーチェーン → 環境変数 → `~/.secrets/meeting-cue.env`(KEY=VALUE)の順に探す。
 
-- キーチェーン(2026-09-26・設定画面から登録): サービス名 `local.meetcue`・アカウント = 接続先(openrouter / anthropic / openai)。
+- キーチェーン(2026-09-26・設定画面から登録): サービス名 `local.meetcue`・アカウント = 接続先(openrouter / anthropic / openai /
+  obsidian = Obsidian の Local REST API・2026-10-08)。
   書き込みは `security -i` に標準入力で渡す(コマンドラインにキーを出さない)。読むのは `security find-generic-password -w`。
 - 既存の `~/.secrets/meeting-cue.env` はそのまま読む(書き換えない)。
 - ファイルやキーが無くても落とさない(鍵なし = クラウド無しで動く)。キーの中身を画面・ログへ出さない。
@@ -17,7 +18,8 @@ from pathlib import Path
 
 DEFAULT_ENV = Path.home() / ".secrets" / "meeting-cue.env"
 KEYCHAIN_SERVICE = os.environ.get("MEETCUE_KEYCHAIN_SERVICE") or "local.meetcue"   # 試験では別の名前にする
-PROVIDERS = {"openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+PROVIDERS = {"openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
+             "obsidian": "OBSIDIAN_API_KEY"}   # obsidian = Obsidian の Local REST API のキー(MCP 連携・FR-5b・2026-10-08)
 KEY_RE = re.compile(r"^[A-Za-z0-9_\-.]{16,400}$")   # 各社のキーの文字(空白・引用符は入らない)
 
 

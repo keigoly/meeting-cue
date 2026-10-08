@@ -251,6 +251,36 @@
   .know { display: flex; flex-wrap: wrap; gap: 5px; padding-left: 8px; }
   .know span { background: color-mix(in srgb, var(--know) 12%, transparent); color: var(--know); border-radius: 7px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
   #summary { white-space: pre-wrap; line-height: 1.8; padding: 6px 6px; }
+  /* ノートの札: 押すと Obsidian で開く(FR-5b)。MCP で見つけたノートは点線 */
+  .know span.note { cursor: pointer; }
+  .know span.note:hover { background: color-mix(in srgb, var(--know) 22%, transparent); }
+  .know span.note.mcp { outline: 1px dashed color-mix(in srgb, var(--know) 55%, transparent); }
+  /* 深掘り(FR-6d): 質問のカードに「少し深く(Sonnet)/ 深く(Opus)」。結果はカードの下に段ごとの枠で */
+  .digbar { display: flex; gap: 6px; margin: 8px 0 2px 34px; flex-wrap: wrap; }
+  .digbar .pill { padding: 4px 11px; font-size: 12px; }
+  body.reviewing .digbar { display: none; }
+  .dig { margin: 12px 0 0 26px; padding: 10px 12px 8px; border-radius: 14px; background: var(--panel-hi); border: 1px solid var(--line); }
+  .dig .dh { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+  .dig .dh .st.run { color: var(--accent-text); } .dig .dh .st.cut { color: var(--warn); }
+  .dig .concl { font-weight: 800; font-size: 14px; line-height: 1.6; margin: 4px 0; }
+  .dig .concl:empty, .dig .cautions:empty { display: none; }
+  .dig .ev { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; margin: 3px 0; flex-wrap: wrap; }
+  .dig .ev .n { flex: none; color: var(--know); font-weight: 800; font-size: 11px; }
+  .dig .ev .know { padding-left: 0; display: inline-flex; }
+  .dig .cautions { color: var(--warn); font-size: 12px; margin-top: 6px; line-height: 1.6; }
+  .dig .answers, .dig .counters { margin-left: -8px; }
+  /* 用語タブ(FR-6e): 語・読み・分野・説明・あなたのノート。新しい語が上 */
+  #terms { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+  #terms .empty { grid-column: 1 / -1; }
+  .term { background: var(--panel); border-radius: 16px; box-shadow: var(--shadow); padding: 11px 14px 10px; border: 1.5px solid transparent; transition: border-color .6s; }
+  .term.new { border-color: var(--accent); }
+  .term .th { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .term .tw { font-size: 15.5px; font-weight: 800; }
+  .term .rd { color: var(--dim); font-size: 12px; }
+  .term .fd { margin-left: auto; color: var(--accent-text); background: var(--accent-bg); border-radius: 7px; padding: 0 7px; font-size: 11px; font-weight: 700; }
+  .term .td { font-size: 13px; line-height: 1.65; margin: 4px 0 6px; }
+  .term .know { padding-left: 0; }
+  .term .tm { color: var(--faint); font-size: 10.5px; margin-top: 4px; font: 10.5px ui-monospace, "SF Mono", Menlo, monospace; }
   .card .nagi { color: var(--fg); font-size: 12px; margin: 2px 0 4px 34px; }
   .qbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
   .qbar .check { margin: 0 0 0 6px; color: var(--dim); font-size: 12px; }
@@ -335,6 +365,13 @@
   .provdetail .row span { color: var(--fg); min-width: 7em; }
   .provdetail input[type=number] { width: 7em; }
   .provdetail input[list] { flex: 1; min-width: 12em; }
+  .obsrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .obsrow select, .obsrow input[type=text] { flex: 1; min-width: 200px; }
+  .dlg input[type=text] { background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px 8px; font: inherit; }
+  .obsstat { font-size: 12px; color: var(--dim); line-height: 1.7; }
+  .obsstat b { color: var(--fg); }
+  .obsstat .ok { color: var(--accent-text); font-weight: 700; } .obsstat .ng { color: var(--rec-text); font-weight: 700; }
+  #obs-mcp-box { margin-left: 22px; }
   .dlg input[type=number], .dlg input[list] { background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px 8px; font: inherit; }
 </style>
 </head>
@@ -392,12 +429,14 @@
     <button class="tab sel" data-tab="transcript">文字起こし</button>
     <button class="tab" data-tab="questions">質問<span class="n" id="n-questions">0</span></button>
     <button class="tab" data-tab="answers">回答<span class="n" id="n-answers">0</span></button>
+    <button class="tab" data-tab="glossary">用語<span class="n" id="n-glossary">0</span></button>
     <button class="tab" data-tab="summary" id="tab-summary" style="display:none">サマリ</button>
   </div>
   <section class="pane sel" id="p-transcript"><div id="partial"></div><div id="utts"></div></section>
   <section class="pane" id="p-questions">
     <div class="qbar">
-      <button class="pill" id="q-now" title="Sonnet が今の会話から考える">今の話で質問を考える</button>
+      <button class="pill" id="q-now" title="Haiku が今の会話から速く考える">今の話で質問を考える</button>
+      <button class="pill" id="q-mid" title="Sonnet が直近の論点を一段掘り下げる">少し深く(Sonnet)</button>
       <button class="pill" id="q-deep" title="Opus が会話全体から深く考える">深く考える(Opus)</button>
       <label class="check"><input type="checkbox" id="q-auto" checked> 自動で考える(最大 1 分に 1 回)</label>
       <span class="qstatus" id="q-status"></span>
@@ -405,6 +444,14 @@
     <div id="plans"><div class="empty" id="plans-empty">会話が進むと、ここに「今こちらから聞くとよい質問」が出ます。相手から質問されたときは回答タブが優先です。</div></div>
   </section>
   <section class="pane" id="p-answers"><div id="cards"></div></section>
+  <section class="pane" id="p-glossary">
+    <div class="qbar">
+      <button class="pill" id="g-now" title="Haiku が今の会話から専門用語を拾う">今の話から用語を拾う</button>
+      <label class="check"><input type="checkbox" id="g-auto" checked> 自動で拾う</label>
+      <span class="qstatus" id="g-status"></span>
+    </div>
+    <div id="terms"><div class="empty" id="terms-empty">会話に専門用語・業界用語が出ると、ここに短い説明とあなたの Obsidian のノートが並びます。</div></div>
+  </section>
   <section class="pane" id="p-summary"><div id="summary"></div></section>
 </main>
 <div id="startdlg"><div class="box">
@@ -427,6 +474,17 @@
   <div id="set-keys"></div>
   <div class="setnote" id="set-keynote">API キーは各社のサイトで発行したものを貼り付けます。月額プランは使えません(Claude の月額プランは Anthropic の規約でほかのアプリからの利用が禁止、ChatGPT の月額プランも公式には OpenAI の Codex 用です)。保存先は OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)で、画面には表示しません。「確認」は各社の無料の認証確認だけを行います。</div>
   <div class="warn" id="set-warn"></div>
+  <div class="setsec">Obsidian(ナレッジ)</div>
+  <div class="setnote">回答・深掘り・用語で、あなたの Obsidian のノートを引きます。Vault(保管庫)を選んで索引を作ると、このパソコンの中だけで検索します。ノートの札を押すと Obsidian でそのノートが開きます。</div>
+  <div class="obsrow"><span>Vault</span><select id="obs-vault"></select><button class="pill" id="obs-choose">フォルダを選ぶ…</button></div>
+  <div class="obsrow"><span class="obsstat" id="obs-index"></span><span class="sp"></span><button class="pill" id="obs-build">索引を作る / 更新</button></div>
+  <label class="check"><input type="checkbox" id="obs-mcp"> Obsidian の MCP サーバーにもつなぐ(任意・深掘りと用語の検索に足す。索引に無い新しいノートも引けます)</label>
+  <div id="obs-mcp-box">
+    <div class="obsrow"><span>型</span><select id="obs-kind"><option value="mcp-obsidian">mcp-obsidian(Local REST API プラグイン + uv)</option><option value="stdio">コマンドで起動(stdio)</option><option value="http">URL につなぐ(Streamable HTTP)</option></select></div>
+    <div class="provdetail" id="obs-kind-detail"></div>
+    <div class="keyrow" id="obs-keyrow"></div>
+    <div class="obsrow"><button class="pill" id="obs-check">接続を確認</button><span class="obsstat" id="obs-check-msg"></span></div>
+  </div>
   <div class="setsec">Google Drive</div>
   <div class="setnote" id="set-drive-status"></div>
   <label class="check"><input type="checkbox" id="set-drive"> 記録を Google Drive へ移せるようにする(一覧の右クリック)</label>
@@ -465,15 +523,23 @@
     <div class="dlgbtns"><button class="pill" data-go="1">戻る</button><button class="pill on" data-go="3">次へ</button></div>
   </div>
   <div class="onb-step" data-step="3">
-    <h2>Google Drive</h2>
+    <h2>Obsidian</h2>
     <div class="onb-intro" id="onb-intro3"></div>
-    <div class="setnote" id="onb-drive-status"></div>
-    <label class="check"><input type="checkbox" id="onb-drive" checked> 記録を Google Drive へ移せるようにする(一覧の右クリック)</label>
+    <div class="obsrow"><span>Vault</span><select id="onb-vault"></select><button class="pill" id="onb-choose">フォルダを選ぶ…</button></div>
+    <div class="obsrow"><span class="obsstat" id="onb-index"></span><span class="sp"></span><button class="pill" id="onb-build">索引を作る</button></div>
+    <div class="setnote">Obsidian を使っていなければ飛ばして構いません。MCP サーバーへの接続は ⚙ からできます。</div>
     <div class="dlgbtns"><button class="pill" data-go="back">戻る</button><button class="pill on" data-go="4">次へ</button></div>
   </div>
   <div class="onb-step" data-step="4">
-    <h2>準備ができました</h2>
+    <h2>Google Drive</h2>
     <div class="onb-intro" id="onb-intro4"></div>
+    <div class="setnote" id="onb-drive-status"></div>
+    <label class="check"><input type="checkbox" id="onb-drive" checked> 記録を Google Drive へ移せるようにする(一覧の右クリック)</label>
+    <div class="dlgbtns"><button class="pill" data-go="back">戻る</button><button class="pill on" data-go="5">次へ</button></div>
+  </div>
+  <div class="onb-step" data-step="5">
+    <h2>準備ができました</h2>
+    <div class="onb-intro" id="onb-intro5"></div>
     <div class="setnote" id="onb-summary"></div>
     <div class="dlgbtns"><button class="pill" data-go="back">戻る</button><button class="pill on" id="onb-done">始める</button></div>
   </div>
@@ -586,6 +652,7 @@
     askedNoLlm: 'あなたへの質問です。今は生成を止めているので、候補は出しません。',   // LOCAL・鍵なし・--no-llm
     ranked: '★ から。結論を先にどうぞ。',
     plansEmpty: '会話が進んだら、今こちらから聞くとよいことをここに置いておきます。相手から質問されたら、そちらが先です。',
+    termsEmpty: '難しい言葉が出たら、意味とあなたのノートをここに並べておきます。度忘れしても大丈夫です。',
     planWait: '相手の質問が先です。答え終わったら、また考えます。',
     planDone: '今なら、この確認が効きます。',
     saved: 'お疲れさまでした。録音を保存しました。',
@@ -602,11 +669,13 @@
     },
   };
   const PLANS_EMPTY = '会話が進むと、ここに「今こちらから聞くとよい質問」が出ます。相手から質問されたときは回答タブが優先です。';
+  const TERMS_EMPTY = '会話に専門用語・業界用語が出ると、ここに短い説明とあなたの Obsidian のノートが並びます。';
   function applyNagi(on) {
     nagiOn = on !== false;
     document.body.classList.toggle('nonagi', !nagiOn);
     $('#set-nagi').checked = nagiOn;
     const pe = $('#plans-empty'); if (pe) pe.textContent = nagiOn ? NAGI.plansEmpty : PLANS_EMPTY;
+    const te = $('#terms-empty'); if (te) te.textContent = nagiOn ? NAGI.termsEmpty : TERMS_EMPTY;
     renderHead();
   }
   let nagiHold = 0;
@@ -701,14 +770,15 @@
   function provDetail(box) {
     const p = appSettings.provider || 'openrouter', am = appSettings.anthropic_models || {};
     if (p === 'anthropic') {
-      box.innerHTML = `回答・質問タブ = <b>${esc(am.main)}</b>(思考を切って速く)/ サマリ = <b>${esc(am.fast)}</b> / 深く考える = <b>${esc(am.deep)}</b>。料金は公開価格から計算して月の予算上限に数えます。質問の判定(Jev)をオンにするなら OpenRouter のキーも要ります。`;
+      box.innerHTML = `回答・質問タブ・用語 = <b>${esc(am.main)}</b>(思考を短くして速く)/ サマリ = <b>${esc(am.fast)}</b> / 少し深く = <b>${esc(am.mid)}</b> / 深く考える = <b>${esc(am.deep)}</b>。料金は公開価格から計算して月の予算上限に数えます。質問の判定(Jev)をオンにするなら OpenRouter のキーも要ります。`;
       return;
     }
     if (p === 'claude-cli') {
-      box.innerHTML = `<b>開発者向け・自己責任</b>: このパソコンでログイン済みの Claude Code を呼び出し、あなたの Claude の月額プランの利用枠で回答を作ります(アプリは認証情報に触れません)。モデルは ${esc(am.main)} / ${esc(am.fast)} / ${esc(am.deep)}。録音中は Claude Code を 2 つ先に起動して待たせるので、初トークンは API と同じくらいです。API の月予算には数えません。Anthropic の規約上、ほかの人に使わせる形では配れません(公開版の既定はオフ)。質問の判定(Jev)は OpenRouter のキーを使います。${appSettings.subscription_cli?.found ? '' : '<br><b>Claude Code(claude)が見つかりません。</b>'}`;
+      box.innerHTML = `<b>開発者向け・自己責任</b>: このパソコンでログイン済みの Claude Code を呼び出し、あなたの Claude の月額プランの利用枠で回答を作ります(アプリは認証情報に触れません)。モデルは ${esc(am.main)}(回答・用語・サマリ)/ ${esc(am.mid)}(少し深く)/ ${esc(am.deep)}(深く)。録音中は Claude Code を 2 つ先に起動して待たせるので、初トークンは API と同じくらいです。API の月予算には数えません。Anthropic の規約上、ほかの人に使わせる形では配れません(公開版の既定はオフ)。質問の判定(Jev)は OpenRouter のキーを使います。${appSettings.subscription_cli?.found ? '' : '<br><b>Claude Code(claude)が見つかりません。</b>'}`;
       return;
     }
-    if (p === 'openrouter') { box.textContent = '回答・質問タブ = Claude Sonnet 5 / サマリ = Haiku 4.5 / 深く考える = Opus 5.5(OpenRouter 経由・質問の判定 Jev と同じキー)。'; return; }
+    if (p === 'openrouter') { const om = appSettings.openrouter_models || {};
+      box.innerHTML = `回答・質問タブ・用語・サマリ = <b>${esc(om.main || 'anthropic/claude-haiku-5.5')}</b>(思考を切って速く)/ 少し深く = <b>${esc(om.mid || 'anthropic/claude-sonnet-5.5')}</b> / 深く考える = <b>${esc(om.deep || 'anthropic/claude-opus-5.5')}</b>(OpenRouter 経由・質問の判定 Jev と同じキー)。`; return; }
     if (box.contains(document.activeElement)) return;   // 入力中は作り直さない
     box.innerHTML = `<div class="row"><span>モデル</span><input list="openai-models" class="oa-model" placeholder="一覧から選ぶか入力" value="${esc(appSettings.openai_model || '')}"><button class="pill oa-list" ${keySet('openai') ? '' : 'disabled'}>一覧を取得</button></div>
       <div class="row"><span>価格(1M トークン)</span>入力 $<input type="number" class="oa-in" min="0" step="0.01" value="${appSettings.openai_price_in || ''}">出力 $<input type="number" class="oa-out" min="0" step="0.01" value="${appSettings.openai_price_out || ''}"></div>
@@ -739,6 +809,7 @@
     const accts = appSettings.drive_accounts || [];
     $('#set-drive-acct-row').style.display = accts.length > 1 ? '' : 'none';
     $('#set-drive-acct').innerHTML = accts.map(a => `<option ${a === appSettings.drive_account ? 'selected' : ''}>${esc(a)}</option>`).join('');
+    renderObsidian();
     renderStartNote();
   }
   function renderStartNote() {
@@ -767,13 +838,104 @@
   $('#set-drive-acct').onchange = (e) => saveSetting({drive_account: e.target.value});
   $('#set-onb').onclick = () => { $('#setdlg').classList.remove('open'); openOnboarding(); };
 
-  // ---- 初回の案内: 使い方 → AI の接続(キー・Jev)→ Google Drive → 完了。「録音だけ」は 2 を飛ばす ----
+  // ---- Obsidian(FR-5b・2026-10-08): Vault・索引・MCP。状態はサーバーの /api/obsidian(設定の obsidian)と SSE の obsidian ----
+  const fmtDate = (ms) => ms ? jdate(ms) : '';
+  function obsVaultOptions(sel) {
+    const ob = appSettings.obsidian || {}; const cur = ob.vault_root || '';
+    const vs = (ob.vaults || []).filter(v => v.exists);
+    let opts = vs.map(v => `<option value="${esc(v.path)}" ${v.path === cur ? 'selected' : ''}>${esc(v.name)}${v.open ? '(開いている)' : ''} — ${esc(v.path)}</option>`);
+    if (cur && !vs.some(v => v.path === cur)) opts.unshift(`<option value="${esc(cur)}" selected>${esc(cur.split('/').pop() || cur)} — ${esc(cur)}${ob.vault_exists ? '' : '(見つかりません)'}</option>`);
+    if (!opts.length) opts = ['<option value="">(Obsidian の保管庫が見つかりません。フォルダを選んでください)</option>'];
+    sel.innerHTML = opts.join('');
+  }
+  function obsIndexText() {
+    const ob = appSettings.obsidian || {}, ix = ob.index || {};
+    if (ix.building) return '<b>索引を作っています…</b>(録音しながらでも大丈夫です)';
+    const last = ix.last && !ix.last.ok ? ` <span class="ng">失敗: ${esc(ix.last.error || '')}</span>` : '';
+    if (!ix.exists) return `<span class="ng">索引はまだありません</span>。「索引を作る」を押してください。${last}`;
+    const where = ix.root && ix.root !== ob.vault_root ? ' <span class="ng">(別の Vault の索引です。作り直してください)</span>' : '';
+    const done = ix.last?.ok ? `・今回 ${ix.last.added || 0} 追加 / ${ix.last.updated || 0} 更新 / ${ix.last.removed || 0} 削除(${((ix.last.ms || 0) / 1000).toFixed(1)} s)` : '';
+    return `<span class="ok">索引あり</span> ${ix.files ?? '?'} ノート・${ix.chunks ?? '?'} 区切り・${((ix.bytes || 0) / 1e6).toFixed(1)} MB` +
+      (ix.built_ms ? `・${esc(fmtDate(ix.built_ms))} に作成` : '') + done + where + last;
+  }
+  const OBS_KIND = {
+    'mcp-obsidian': () => `Obsidian に <b>Local REST API</b> プラグインを入れて有効にし、プラグインの設定画面に出る API キーを下に貼ります。サーバーは uv(<code>uvx mcp-obsidian</code>)が起動します${appSettings.obsidian?.mcp?.uvx ? '' : '(<b>uv が見つかりません</b>)'}。
+      <div class="row"><button class="linkbtn" data-open="obsidian_rest">Local REST API プラグインを開く</button><button class="linkbtn" data-open="uv">uv を入手</button><button class="linkbtn" data-open="obsidian_app">Obsidian を入手</button></div>
+      <div class="row"><span>ホスト・ポート</span><input type="text" id="obs-host" style="width:9em" value="${esc(appSettings.mcp_host || '127.0.0.1')}"><input type="number" id="obs-port" min="1" max="65535" value="${appSettings.mcp_port || 27124}"></div>`,
+    'stdio': () => `MCP サーバーを起動するコマンドを入れます(例: <code>npx -y 〈Obsidian の MCP サーバー〉 "Vault のパス"</code>)。キーを登録すると環境変数 OBSIDIAN_API_KEY で渡します。
+      <div class="row"><span>コマンド</span><input type="text" id="obs-cmd" value="${esc(appSettings.mcp_command || '')}" spellcheck="false"></div>`,
+    'http': () => `Streamable HTTP の MCP サーバーの URL を入れます。キーを登録すると Authorization: Bearer で送ります。LOCAL(仕事の会議)の録音中は、この PC(localhost)の URL だけを使います。
+      <div class="row"><span>URL</span><input type="text" id="obs-url" value="${esc(appSettings.mcp_url || '')}" placeholder="http://127.0.0.1:3001/mcp" spellcheck="false"></div>`,
+  };
+  function renderObsidian() {
+    const ob = appSettings.obsidian || {}, m = ob.mcp || {};
+    if (!$('#setdlg').contains(document.activeElement) || document.activeElement.id !== 'obs-vault') obsVaultOptions($('#obs-vault'));
+    $('#obs-index').innerHTML = obsIndexText();
+    $('#obs-build').disabled = !!ob.index?.building || !ob.vault_exists;
+    $('#obs-mcp').checked = !!appSettings.obsidian_mcp;
+    $('#obs-mcp-box').style.display = appSettings.obsidian_mcp ? '' : 'none';
+    $('#obs-kind').value = appSettings.mcp_kind || 'mcp-obsidian';
+    const box = $('#obs-kind-detail');
+    if (!box.contains(document.activeElement)) {
+      box.innerHTML = (OBS_KIND[appSettings.mcp_kind] || OBS_KIND['mcp-obsidian'])();
+      box.querySelectorAll('[data-open]').forEach(b => b.onclick = () => post('/api/open', {page: b.dataset.open}));
+      const on = (id, f) => { const e = box.querySelector(id); if (e) e.onchange = f; };
+      on('#obs-host', (e) => saveSetting({mcp_host: e.target.value.trim() || '127.0.0.1'}));
+      on('#obs-port', (e) => saveSetting({mcp_port: Math.min(65535, Math.max(1, parseInt(e.target.value, 10) || 27124))}));
+      on('#obs-cmd', (e) => saveSetting({mcp_command: e.target.value.trim()}));
+      on('#obs-url', (e) => saveSetting({mcp_url: e.target.value.trim()}));
+    }
+    const kr = $('#obs-keyrow');
+    if (!kr.contains(document.activeElement)) {
+      const k = m.key || {};
+      kr.innerHTML = `<div class="kname"><span>${appSettings.mcp_kind === 'mcp-obsidian' ? 'Local REST API のキー' : 'キー(任意)'}</span><span class="kstat ${k.set ? 'on' : ''}">${!k.set ? '未設定' : k.source === 'keychain' ? '設定済み(OS の鍵の保管庫)' : '設定済み(~/.secrets のファイルか環境変数)'}</span></div>
+        <div class="kctl"><input type="password" placeholder="キーを貼り付け" autocomplete="off" spellcheck="false"><button class="pill" data-k="save">保存</button>${k.source === 'keychain' ? '<button class="pill" data-k="delete">削除</button>' : ''}</div><div class="kmsg"></div>`;
+      kr.querySelector('[data-k=save]').onclick = async () => {
+        const inp = kr.querySelector('input'), key = inp.value.trim(); inp.value = '';
+        if (!key) { kr.querySelector('.kmsg').textContent = 'キーを貼り付けてください'; return; }
+        const r = await post('/api/keys/save', {provider: 'obsidian', key}); const j = await r.json().catch(() => ({}));
+        if (!r.ok) { kr.querySelector('.kmsg').textContent = j.error || '保存できませんでした'; return; }
+        applySettings(j); $('#obs-check').click();
+      };
+      const del = kr.querySelector('[data-k=delete]');
+      if (del) del.onclick = async () => { const r = await post('/api/keys/delete', {provider: 'obsidian'}); if (r.ok) applySettings(await r.json()); };
+    }
+    const last = m.last;
+    if (!$('#obs-check').disabled) $('#obs-check-msg').innerHTML = m.error ? `<span class="ng">${esc(m.error)}</span>` :
+      last ? `<span class="${last.ok ? 'ok' : 'ng'}">${esc(last.message || '')}</span>` : '';
+  }
+  async function chooseVault() {
+    const r = await post('/api/obsidian/choose', {}); const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(j.error || 'フォルダを選べませんでした', true); return; }
+    if (!j.cancelled) applySettings(j);
+  }
+  async function buildIndex() {
+    const r = await post('/api/obsidian/index', {}); const j = await r.json().catch(() => ({}));
+    if (!r.ok) toast(j.error || '索引を作れませんでした', true);
+  }
+  const pickVault = (e) => { if (e.target.value) saveSetting({vault_root: e.target.value}); };
+  $('#obs-vault').onchange = pickVault; $('#onb-vault').onchange = pickVault;
+  $('#obs-choose').onclick = chooseVault; $('#onb-choose').onclick = chooseVault;
+  $('#obs-build').onclick = buildIndex; $('#onb-build').onclick = buildIndex;
+  $('#obs-mcp').onchange = (e) => saveSetting({obsidian_mcp: e.target.checked});
+  $('#obs-kind').onchange = (e) => saveSetting({mcp_kind: e.target.value});
+  $('#obs-check').onclick = async () => {
+    const b = $('#obs-check'); b.disabled = true; $('#obs-check-msg').textContent = '確認しています…(初回は uv がサーバーを用意するので数十秒かかることがあります)';
+    try {
+      const j = await (await post('/api/obsidian/mcp/check', {})).json();
+      $('#obs-check-msg').innerHTML = `<span class="${j.ok ? 'ok' : 'ng'}">${esc(j.message || '')}</span>`;
+    } catch (e) { $('#obs-check-msg').textContent = '確認できませんでした'; }
+    b.disabled = false;
+  };
+
+  // ---- 初回の案内: 使い方 → AI の接続(キー・Jev)→ Obsidian → Google Drive → 完了。「録音だけ」は 2 を飛ばす ----
   let onbStep = 1, onbPath = [1];
   const ONB = {
     1: ['はじめまして、ナギです。会議の袖に控えて、あなたが話す番のきっかけを小声で渡します。まず、どこまで手伝うかを決めましょう。', '最初に使い方を選んでください。あとから ⚙ で変えられます。'],
     2: ['回答候補を作る AI の接続先と、その API キーを登録してください。キーは OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)にしまいます。', '生成 AI の接続先と API キーを登録します。キーは OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)に保存します。'],
-    3: ['終わった記録を Google Drive へ移せるようにしておきますか。移しても一覧から開けます。', '記録を Google Drive へ移す機能を使うかを選びます。'],
-    4: ['準備できています。始めるときは右上の「録音を開始」をどうぞ。', '設定が終わりました。右上の「録音を開始」から始められます。'],
+    3: ['あなたの Obsidian の Vault を教えてください。索引を作っておくと、会議中にノートからすぐ答えや用語の意味を引き出せます。', 'Obsidian の Vault(保管庫)を選び、索引を作ります。回答・深掘り・用語でノートを検索します(検索はこのパソコンの中だけ)。'],
+    4: ['終わった記録を Google Drive へ移せるようにしておきますか。移しても一覧から開けます。', '記録を Google Drive へ移す機能を使うかを選びます。'],
+    5: ['準備できています。始めるときは右上の「録音を開始」をどうぞ。', '設定が終わりました。右上の「録音を開始」から始められます。'],
   };
   function onbText(n) { const [nv, plain] = ONB[n]; return nagiOn ? `<b>ナギ</b>${esc(nv)}` : esc(plain); }
   function showStep(n) {
@@ -782,19 +944,21 @@
     renderOnboarding();
   }
   function renderOnboarding() {
-    for (const n of [1, 2, 3, 4]) $('#onb-intro' + n).innerHTML = onbText(n);
+    for (const n of [1, 2, 3, 4, 5]) $('#onb-intro' + n).innerHTML = onbText(n);
+    obsVaultOptions($('#onb-vault')); $('#onb-index').innerHTML = obsIndexText();
     provOptions($('#onb-provider')); provDetail($('#onb-prov-detail'));
     if (!$('#onb-keys').contains(document.activeElement)) keyRows($('#onb-keys'), [appSettings.provider || 'openrouter', 'openrouter']);
     $('#onb-jev').checked = !!appSettings.jev;
     $('#onb-warn').textContent = aiWarn();
     $('#onb-drive-status').textContent = driveStatus();
     $('#onb-drive').checked = !!appSettings.drive; $('#onb-drive').disabled = !(appSettings.drive_accounts || []).length;
-    $('#onb-summary').textContent = modeNote() + ' Google Drive: ' + (appSettings.drive && (appSettings.drive_accounts || []).length ? '使う' : '使わない') + '。あとから ⚙ で変えられます。';
+    const ob = appSettings.obsidian || {};
+    $('#onb-summary').textContent = modeNote() + ' Obsidian: ' + (ob.index?.exists ? `索引あり(${ob.index.files ?? '?'} ノート)` : '未設定') + '。Google Drive: ' + (appSettings.drive && (appSettings.drive_accounts || []).length ? '使う' : '使わない') + '。あとから ⚙ で変えられます。';
   }
   function openOnboarding() { onbPath = []; $('#onbdlg').classList.add('open'); showStep(1); }
   document.querySelectorAll('#onbdlg .choice-btn').forEach(b => b.onclick = async () => {
     if (b.dataset.choice === 'ai') { await saveSetting({generate: true, jev: true}); showStep(2); }
-    else { await saveSetting({generate: false, jev: false}); showStep(3); }   // 録音だけ: キーの画面は飛ばす
+    else { await saveSetting({generate: false, jev: false}); showStep(3); }   // 録音だけ: キーの画面は飛ばす(Obsidian はナレッジに使える)
   });
   document.querySelectorAll('#onbdlg [data-go]').forEach(b => b.onclick = () => {
     if (b.dataset.go === 'back') { onbPath.pop(); showStep(onbPath.pop() || 1); return; }
@@ -813,6 +977,7 @@
     document.querySelectorAll('.pane').forEach(p => p.classList.toggle('sel', p.id === 'p-' + name));
     if (name === 'answers') { answersUnread = 0; badge(); }
     if (name === 'questions') { questionsUnread = 0; qBadge(); }
+    if (name === 'glossary') { termsUnread = 0; gBadge(); }
   }
   function badge() { const n = $('#n-answers'); n.textContent = answersUnread; n.classList.toggle('on', answersUnread > 0); }
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => selectTab(t.dataset.tab));
@@ -961,7 +1126,7 @@
   // ---- 本文(文字起こし・回答) ----
   function clearBody() {
     $('#utts').innerHTML = ''; $('#partial').textContent = ''; $('#cards').innerHTML = ''; $('#summary').textContent = '';
-    utts.clear(); cards.clear(); answersUnread = 0; badge(); clearPlans();
+    utts.clear(); cards.clear(); answersUnread = 0; badge(); clearPlans(); clearTerms();
   }
   // 録音中は新しい発言を上に足し、古いものは下へ流れる(2026-09-28 keigoly様)。録音後の画面は古い順に上から(再生が上から下へ進む)。
   // 上の方(途中の文字・新しい発言・判定)を変えるときは keepTop で包む: 上端にいれば上端に留め、下の古い発言を読んでいる人の位置は動かさない
@@ -970,18 +1135,15 @@
     change();
     pane.scrollTop = atTop ? 0 : pane.scrollTop + pane.scrollHeight - h;
   }
-  function addUtt(u, atS, j) {
-    const pane = $('#p-transcript');
-    const keep = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 60;
+  function addUtt(u, atS, j, into = $('#utts')) {
     const el = document.createElement('div');
     el.className = 'utt ' + u.channel; el.dataset.rid = u.rid;
     el.innerHTML = `<span class="at">${mmss(atS)}</span><span class="who">${u.channel === 'mic' ? '自分' : '相手'}</span>` +
       `<span><span class="tx">${esc(u.text)}</span><div class="j"></div></span>`;
     utts.set(u.rid, el);
     if (view.kind === 'live') { $('#utts').prepend(el); if (j) setJudgment(u.rid, j); return; }   // 位置は呼び手の keepTop が保つ
-    $('#utts').appendChild(el);
+    into.appendChild(el);   // 録音後の画面: 呼び手(openReview)がまとめて入れ、位置を 1 回だけ合わせる
     if (j) setJudgment(u.rid, j);
-    if (keep) pane.scrollTop = pane.scrollHeight;
   }
   function setJudgment(rid, j) {
     const el = utts.get(rid); if (!el) return;
@@ -994,11 +1156,16 @@
     let c = cards.get(rid); if (c) return c;
     const el = document.createElement('div'); el.className = 'card new'; el.dataset.rid = rid;
     el.innerHTML = `<h3>${esc(question || '')}</h3><div class="nagi"></div><div class="meta"></div><div class="intent"></div>
+      <div class="digbar"><button class="pill" data-level="mid" title="Sonnet が Obsidian のノートを多めに読んで掘り下げる">少し深く(Sonnet)</button><button class="pill" data-level="deep" title="Opus が会話全体とノートを横断して深く掘り下げる">深く(Opus)</button></div>
       <div class="sec">回答候補</div><div class="answers"></div><div class="sec">逆質問候補</div><div class="counters"></div>
-      <div class="sec know-sec" style="display:none">ナレッジ</div><div class="know"></div>`;
+      <div class="sec know-sec" style="display:none">ナレッジ</div><div class="know"></div><div class="digs"></div>`;
     $('#cards').insertBefore(el, $('#cards').firstChild);
     setTimeout(() => el.classList.remove('new'), 8000);
-    c = {el, answers: new Map(), counters: new Map()}; cards.set(rid, c);
+    c = {el, answers: new Map(), counters: new Map(), digs: new Map()}; cards.set(rid, c);
+    el.querySelectorAll('.digbar button').forEach(b => b.onclick = () => {
+      b.disabled = true; action('dig', {rid, level: b.dataset.level});
+      if (nagiOn) nagiSay('ノートを読み込んで掘り下げます。', 'think', 8000);
+    });
     return c;
   }
   const qtext = (rid) => utts.get(rid)?.querySelector('.tx')?.textContent || '';
@@ -1043,8 +1210,107 @@
     const c = card(rid, qtext(rid));
     c.el.querySelector('.know-sec').style.display = '';
     const k = c.el.querySelector('.know'); k.innerHTML = '';
-    items.forEach(it => { const s = document.createElement('span'); s.textContent = it.path.split('/').pop().replace(/\.md$/, '') + (it.heading ? ' › ' + it.heading : ''); s.title = it.snippet || ''; k.appendChild(s); });
+    items.forEach(it => k.appendChild(noteChip(it)));
   }
+  // ノートを Obsidian で開く(FR-5b・obsidian://open?path=)。Vault の外・.md 以外はサーバーが断る
+  function openNote(path) {
+    if (!path) return;
+    post('/api/obsidian/open', {path}).then(r => r.ok ? null : r.json().then(j => toast(j.error || 'Obsidian で開けませんでした', true))).catch(() => {});
+  }
+  function noteChip(n) {   // n = {path, heading, snippet, source}
+    const s = document.createElement('span'); s.className = 'note' + (n.source === 'mcp' ? ' mcp' : '');
+    s.textContent = String(n.path || '').split('/').pop().replace(/\.md$/, '') + (n.heading ? ' › ' + n.heading : '');
+    s.title = (n.snippet ? n.snippet + '\n' : '') + 'クリックで Obsidian で開く' + (n.source === 'mcp' ? '(MCP で見つけたノート)' : '');
+    s.onclick = (e) => { e.stopPropagation(); openNote(n.path); };
+    return s;
+  }
+
+  // ---- 深掘り(FR-6d): 少し深く = Sonnet / 深く = Opus。引いたノート → 結論・根拠・回答・注意・逆質問の順に出る ----
+  const DIG_JA = {mid: '少し深く', deep: '深く'};
+  const DIG_LINE = /^(結論|根拠\d+|回答\d+|注意|逆質問\d+)\s*[:：]\s*(.*)$/;
+  function parseDig(line) {
+    const m = DIG_LINE.exec(String(line || '').trim()); if (!m) return null;
+    const key = m[1], val = m[2].trim(), parts = val.split('|').map(x => x.trim()), idx = parseInt(key.replace(/\D/g, ''), 10) || 0;
+    const src = (x) => String(x || '').replace(/^根拠\s*[:：]\s*/, '');
+    if (key === '結論') return {kind: 'conclusion', text: val};
+    if (key === '注意') return {kind: 'caution', text: val};
+    if (key.startsWith('根拠')) return {kind: 'evidence', index: idx, text: parts[0], source: src(parts[1])};
+    if (key.startsWith('回答')) return {kind: 'answer', index: idx, title: parts[0], body: parts[1] || '', source: src(parts[2])};
+    return {kind: 'counter', index: idx, question: parts[0], aim: parts[1] || ''};
+  }
+  function digBox(c, level, model) {
+    let d = c.digs.get(level); if (d) return d;
+    const el = document.createElement('div'); el.className = 'dig'; el.dataset.level = level;
+    el.innerHTML = `<div class="dh"><span>深掘り ・ ${esc(DIG_JA[level] || level)}${model ? ' ・ ' + esc(modelJa(model)) : ''}</span><span class="st"></span></div>` +
+      '<div class="know dnotes"></div><div class="concl"></div><div class="evs"></div><div class="answers"></div><div class="cautions"></div><div class="counters"></div>';
+    const box = c.el.querySelector('.digs'), other = box.querySelector('.dig[data-level=deep]');
+    level === 'mid' && other ? box.insertBefore(el, other) : box.appendChild(el);   // 少し深く → 深く の順
+    d = {el}; c.digs.set(level, d);
+    const b = c.el.querySelector(`.digbar [data-level=${level}]`); if (b) b.disabled = true;
+    return d;
+  }
+  function digSt(d, text, cls = '') { const e = d.el.querySelector('.st'); e.textContent = text; e.className = 'st ' + cls; }
+  function digItem(d, it) {
+    if (it.kind === 'conclusion') { d.el.querySelector('.concl').textContent = it.text; return; }
+    if (it.kind === 'caution') { const e = document.createElement('div'); e.textContent = '注意: ' + it.text; d.el.querySelector('.cautions').appendChild(e); return; }
+    if (it.kind === 'evidence') {
+      const row = document.createElement('div'); row.className = 'ev';
+      row.innerHTML = `<span class="n">根拠${it.index}</span><span>${esc(it.text)}</span>`;
+      const [path, heading] = String(it.source || '').split('#');
+      if (path && path !== 'なし') { const k = document.createElement('span'); k.className = 'know'; k.appendChild(noteChip({path, heading: heading || '', snippet: it.text})); row.appendChild(k); }
+      d.el.querySelector('.evs').appendChild(row); return;
+    }
+    if (it.kind === 'answer') d.el.querySelector('.answers').appendChild(candRow(true, it.index, [it.title, it.body, it.source]));
+    else d.el.querySelector('.counters').appendChild(candRow(false, it.index, [it.question, it.aim]));
+  }
+  function digNotes(d, notes) { const k = d.el.querySelector('.dnotes'); k.innerHTML = ''; (notes || []).forEach(n => k.appendChild(noteChip(n))); }
+  function digSaved(c, g) {   // 録音後の画面: 保存した深掘り(cues.jsonl の kind=dig)
+    const d = digBox(c, g.level, g.model); digNotes(d, g.notes);
+    if (g.conclusion) digItem(d, {kind: 'conclusion', text: g.conclusion});
+    (g.evidence || []).forEach(it => digItem(d, {kind: 'evidence', ...it}));
+    (g.answers || []).forEach(it => digItem(d, {kind: 'answer', ...it}));
+    (g.cautions || []).forEach(t => digItem(d, {kind: 'caution', text: t}));
+    (g.counters || []).forEach(it => digItem(d, {kind: 'counter', ...it}));
+    digSt(d, g.ok ? '' : g.error === 'cancelled' ? '中断' : '失敗: ' + (g.error || ''), g.ok ? '' : 'cut');
+  }
+
+  // ---- 用語タブ(FR-6e): 会話に出た専門用語に短い説明と自分のノート。新しい語が上・1 回の録音で同じ語は 1 度 ----
+  let termsUnread = 0;
+  const terms = new Map();   // 正規化した語 → 要素
+  const termKey = (t) => String(t || '').toLowerCase().replace(/[\s　・\-_/()（）「」]/g, '');
+  function gBadge() { const n = $('#n-glossary'); n.textContent = termsUnread; n.classList.toggle('on', termsUnread > 0); }
+  function gStatus(text, busy = false) { const e = $('#g-status'); e.textContent = text || ''; e.classList.toggle('busy', busy); }
+  function clearTerms() {
+    terms.clear(); termsUnread = 0; gBadge(); gStatus('');
+    $('#terms').innerHTML = `<div class="empty" id="terms-empty">${esc(nagiOn ? NAGI.termsEmpty : TERMS_EMPTY)}</div>`;
+  }
+  function termNotes(el, notes) {
+    const k = el.querySelector('.know'); k.innerHTML = '';
+    (notes || []).forEach(n => k.appendChild(noteChip(n)));
+  }
+  function addTerm(it, atS, fresh = true) {
+    const key = termKey(it.term); if (!key || terms.has(key)) return;
+    $('#terms-empty')?.remove();
+    const el = document.createElement('div'); el.className = 'term' + (fresh ? ' new' : '');
+    el.innerHTML = `<div class="th"><span class="tw">${esc(it.term)}</span>${it.reading ? `<span class="rd">${esc(it.reading)}</span>` : ''}` +
+      `${it.field ? `<span class="fd">${esc(it.field)}</span>` : ''}<span class="copy" title="コピー">⧉</span></div>` +
+      `<div class="td">${esc(it.desc || '')}${it.llm === false ? ' <span class="s">(ノートから)</span>' : ''}</div><div class="know"></div>` +
+      (atS != null ? `<div class="tm">${mmss(atS)}</div>` : '');
+    el.querySelector('.copy').onclick = () => navigator.clipboard?.writeText(`${it.term}: ${it.desc || ''}`);
+    termNotes(el, it.notes);
+    $('#terms').insertBefore(el, $('#terms').firstChild);
+    terms.set(key, el);
+    if (fresh) { setTimeout(() => el.classList.remove('new'), 6000);
+      if (!$('#p-glossary').classList.contains('sel')) { termsUnread++; gBadge(); } }
+  }
+  const glossHandlers = {
+    glossary_start(ev) { gStatus(ev.trigger === 'manual' ? '用語を拾っています…' : '', ev.trigger === 'manual'); },
+    glossary_item(ev) { addTerm(ev.item, ((ev.item.at_ms || Date.now()) - (st.started_ms || Date.now())) / 1000); },
+    glossary_notes(ev) { const el = terms.get(termKey(ev.term)); if (el) termNotes(el, ev.notes); },
+    glossary_done(ev) { gStatus(ev.ok ? (ev.n ? `${ev.n} 語を足しました` : '') : '失敗: ' + (ev.error || '')); },
+  };
+  $('#g-now').onclick = () => { gStatus('用語を拾っています…', true); action('glossary'); };
+  $('#g-auto').onchange = (e) => { if (!!st.glossary_auto !== e.target.checked) action('glossary_auto'); };
 
   // ---- 録音後の画面 ----
   async function openReview(id) {
@@ -1054,20 +1320,27 @@
     clearBody();
     setupPlayer(d);
     estimateStarts(d.transcript);
+    // 発言はまとめて入れ、位置(下端にいれば下端へ)は最後に 1 回だけ合わせる。1 行ごとに位置を測るとレイアウトが毎回やり直しになり、
+    // 別の記録から 836 発言の記録へ切り替えると画面が 16 s 止まった(2026-10-08 Windows・WebView2。まとめると 58 ms・位置は同じ)
+    const pane = $('#p-transcript'), keep = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 60;
+    const rows = document.createDocumentFragment();
     d.transcript.forEach(u => {
       const pos = uttPos(u);
-      addUtt(u, pos ?? u.at_s, d.judgments[u.rid]);
+      addUtt(u, pos ?? u.at_s, d.judgments[u.rid], rows);
       const el = utts.get(u.rid);
       if (el && pos != null) { el.dataset.pos = pos; el.onclick = (e) => { if (e.target.closest('.copy')) return; seek(pos); play(); }; }
     });
+    $('#utts').appendChild(rows);
+    if (keep) pane.scrollTop = pane.scrollHeight;
     if (!d.transcript.length) $('#utts').innerHTML = '<div class="empty">文字起こしはありません</div>';
-    const qs = d.transcript.filter(u => d.judgments[u.rid]?.trigger || d.cues[u.rid]?.answers?.length);
+    const qs = d.transcript.filter(u => d.judgments[u.rid]?.trigger || d.cues[u.rid]?.answers?.length || d.cues[u.rid]?.digs?.length);
     qs.slice().reverse().forEach(u => {
       const cu = d.cues[u.rid] || {}; const c = card(u.rid, u.text); c.el.classList.remove('new');
       if (cu.intent) c.el.querySelector('.intent').textContent = '意図: ' + cu.intent;
       (cu.answers || []).forEach((a, i) => { const r = candRow(true, i + 1, [a.title, a.body, a.source]); if (a.star) r.classList.add('star'); r.querySelector('.n').textContent = (a.star ? '★' : '') + (i + 1); c.el.querySelector('.answers').appendChild(r); });
       (cu.counters || []).forEach((a, i) => { const r = candRow(false, i + 1, [a.question, a.aim]); if (a.star) r.classList.add('star'); r.querySelector('.n').textContent = (a.star ? '★' : '') + (i + 1); c.el.querySelector('.counters').appendChild(r); });
       knowledge(u.rid, cu.knowledge);
+      (cu.digs || []).forEach(g => digSaved(c, g));
     });
     if (!qs.length) $('#cards').innerHTML = '<div class="empty">この記録では質問を検出していません</div>';
     (d.plans || []).forEach(pl => {
@@ -1076,6 +1349,8 @@
       planSt(c, pl.ok ? '' : pl.error === 'cancelled' ? '相手の質問を優先して中断' : ('失敗: ' + (pl.error || '')), pl.ok ? '' : 'cut');
     });
     if (!(d.plans || []).length) $('#plans').innerHTML = '<div class="empty">この記録では質問タブの候補を出していません</div>';
+    (d.glossary || []).forEach(it => addTerm(it, it.at_s, false));
+    if (!(d.glossary || []).length) $('#terms').innerHTML = '<div class="empty">この記録では用語を拾っていません</div>';
     $('#summary').textContent = d.summary || 'サマリはありません';
     renderHead(); renderList();
     selectTab('transcript');
@@ -1093,7 +1368,7 @@
   const plans = new Map();   // pid → {el, rows: Map(index → row)}
   let questionsUnread = 0;
   let qWait = false;         // 相手の質問に回答中で、質問タブを待たせている
-  const TRIGGER_JA = {auto: '自動', manual: '手動', deep: '深く考える'};
+  const TRIGGER_JA = {auto: '自動', manual: '手動', mid: '少し深く', deep: '深く考える'};
   const modelJa = (m) => /opus/i.test(m || '') ? 'Opus' : /sonnet/i.test(m || '') ? 'Sonnet' : /haiku/i.test(m || '') ? 'Haiku' : (m || '');
   function qBadge() { const n = $('#n-questions'); n.textContent = questionsUnread; n.classList.toggle('on', questionsUnread > 0); }
   function qStatus(text, busy = false) { const e = $('#q-status'); e.textContent = text || ''; e.classList.toggle('busy', busy); }
@@ -1151,6 +1426,7 @@
     },
   };
   $('#q-now').onclick = () => action('plan');
+  $('#q-mid').onclick = () => action('plan_mid');
   $('#q-deep').onclick = () => action('plan_deep');
   $('#q-auto').onchange = (e) => { if (!!st.plan_auto !== e.target.checked) action('plan_auto'); };
 
@@ -1367,6 +1643,7 @@
       if (st.recording && wasRec === false && nagiOn)   // 画面を開いてから始まった録音だけ(開き直したときは言わない)
         toast((NAGI.start[st.mode] || NAGI.start.participant) + (st.privacy === 'local' ? ' ' + NAGI.local : ''), false, true);
       if (ev.plan_auto !== undefined) $('#q-auto').checked = !!ev.plan_auto;
+      if (ev.glossary_auto !== undefined) $('#g-auto').checked = !!ev.glossary_auto;
       if (st.recording && !wasRec && view.kind !== 'review') { view = {kind: 'live', id: st.session}; }
       if (!st.recording && wasRec && view.kind === 'live') { /* session_done で録音後の画面へ移る */ }
       renderHead(); renderList();
@@ -1392,17 +1669,43 @@
     knowledge(ev) { if (view.kind === 'live') knowledge(ev.rid, ev.items); },
     cue_line(ev) { if (view.kind === 'live') cueLine(ev); },
     ranking(ev) { if (view.kind === 'live') ranking(ev); },
+    dig_start(ev) {
+      if (view.kind !== 'live') return;
+      const d = digBox(card(ev.rid, qtext(ev.rid)), ev.level, ev.model);
+      digNotes(d, ev.notes); digSt(d, `ノート ${(ev.notes || []).length} 件を読んで考えています…`, 'run');
+    },
+    dig_line(ev) {
+      if (view.kind !== 'live') return;
+      const c = cards.get(ev.rid), it = parseDig(ev.line); if (!c || !it) return;
+      const d = digBox(c, ev.level); digItem(d, it); digSt(d, '書いています…', 'run');
+    },
+    dig_done(ev) {
+      if (view.kind !== 'live') return;
+      const c = cards.get(ev.rid); if (!c) return;
+      const d = digBox(c, ev.level);
+      if (ev.ok) { digSt(d, `完了 ${((ev.ms_total || 0) / 1000).toFixed(1)} s`); nagiSay('掘り下げました。結論からどうぞ。', 'cue', 12000);
+        if (!$('#p-answers').classList.contains('sel')) { answersUnread++; badge(); } }
+      else {   // 失敗はもう一度押せる(中断は停止のときだけ)
+        digSt(d, ev.error === 'cancelled' ? '中断' : '失敗: ' + (ev.error || ''), 'cut');
+        const b = c.el.querySelector(`.digbar [data-level=${ev.level}]`); if (b && ev.error !== 'cancelled') { b.disabled = false; c.digs.delete(ev.level); d.el.dataset.level = ''; }
+      }
+    },
     cue_done(ev) { if (qWait) { qWait = false; qStatus(''); }
       const c = cards.get(ev.rid); if (c) c.el.querySelector('.meta').textContent = ev.ok ? `生成 ${Math.round(ev.ms_total)}ms(初トークン ${Math.round(ev.ms_first || 0)}ms)` : `生成 ${ev.error || '失敗'}`; },
     level,
     ...Object.fromEntries(Object.entries(planHandlers).map(([k, f]) => [k, (ev) => { if (view.kind === 'live') f(ev); }])),
+    ...Object.fromEntries(Object.entries(glossHandlers).map(([k, f]) => [k, (ev) => { if (view.kind === 'live') f(ev); }])),
     settings(ev) { applySettings(ev); },
+    obsidian(ev) { appSettings.obsidian = ev; renderObsidian(); if ($('#onbdlg').classList.contains('open')) renderOnboarding();
+      if (ev.index?.last && !ev.index.building && obsWasBuilding) toast(ev.index.last.ok ? `索引を作りました(${ev.index.files ?? '?'} ノート)` : '索引を作れませんでした: ' + (ev.index.last.error || ''), !ev.index.last.ok);
+      obsWasBuilding = !!ev.index?.building; },
     sessions_changed: sessionsChanged,
     status(ev) { const n = nagiOn && NAGI.code[ev.code]; toast(n || ev.text, false, !!n); nagiEvent(ev.code); },
     error(ev) { const n = nagiOn && NAGI.code[ev.code]; toast(n || ev.text, true, !!n); nagiEvent(ev.code); },
   };
   const NAGI_EVENT = {silence: ['alert', 15000], silence_end: ['listen', 6000], stopping: ['think', 20000], summary: ['think', 30000]};
   function nagiEvent(code) { const m = NAGI_EVENT[code]; if (m) nagiSay(NAGI.code[code], m[0], m[1]); }
+  let obsWasBuilding = false;
   let es = null;
   function connect() {
     es = new EventSource('/events');

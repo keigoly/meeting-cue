@@ -292,6 +292,31 @@ class WebUI:
         self._push({"type": "plan_done", "pid": pid, "ok": ok, "error": error, "ms_first": ms_first,
                     "ms_total": ms_total, "cost": cost})
 
+    # 用語タブ(FR-6e): 語ごとに出し、MCP で後から見つかったノートは glossary_notes で足す
+    def glossary_start(self, gid: str, trigger: str) -> None:
+        self._push({"type": "glossary_start", "gid": gid, "trigger": trigger})
+
+    def glossary_item(self, gid: str, item: dict) -> None:
+        self._push({"type": "glossary_item", "gid": gid, "item": item})
+
+    def glossary_notes(self, gid: str, term: str, notes: list[dict]) -> None:
+        self._push({"type": "glossary_notes", "gid": gid, "term": term, "notes": notes})
+
+    def glossary_done(self, gid: str, ok: bool, error: str | None, n: int, ms_total: float) -> None:
+        self._push({"type": "glossary_done", "gid": gid, "ok": ok, "error": error, "n": n, "ms_total": ms_total})
+
+    # 深掘り(FR-6d): 押した質問のカードの中に、引いたノート → 行 → 完了の順で出す
+    def dig_start(self, rid: str, level: str, model: str, notes: list[dict]) -> None:
+        self._push({"type": "dig_start", "rid": rid, "level": level, "model": model, "notes": notes})
+
+    def dig_line(self, rid: str, level: str, line: str) -> None:
+        self._push({"type": "dig_line", "rid": rid, "level": level, "line": line})
+
+    def dig_done(self, rid: str, level: str, ok: bool, error: str | None, ms_first: float | None, ms_total: float,
+                 cost: float | None) -> None:
+        self._push({"type": "dig_done", "rid": rid, "level": level, "ok": ok, "error": error, "ms_first": ms_first,
+                    "ms_total": ms_total, "cost": cost})
+
     def cue_done(self, rid: str, ok: bool, ms_first: float | None, ms_total: float, cost: float | None,
                  error: str | None = None) -> None:
         self._push({"type": "cue_done", "rid": rid, "ok": ok, "ms_first": ms_first, "ms_total": ms_total,

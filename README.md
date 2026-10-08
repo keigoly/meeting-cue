@@ -31,7 +31,9 @@ A macOS / Windows app that transcribes your meeting on-device and, when someone 
 
 - **聞く**: 自分(マイク)と相手(会議アプリの音)を分けて、リアルタイムに文字起こしします(Mac は macOS 内蔵の音声認識、Windows は faster-whisper を GPU で)。音声はパソコンの外へ送りません
 - **察する**: 相手の発言が「自分への質問」かどうかを、判定専用の AI(Jev)が約 0.25 秒で見分けます
-- **差し出す**: 回答候補 5 つと逆質問 5 つを作り、採点して上位 3 つに ★ を付けます。最初の文字は約 1 秒で出始めます。Obsidian Vault のメモも根拠に使えます
+- **差し出す**: 回答候補 5 つと逆質問 5 つを Claude Haiku 5.5 が作り、採点して上位 3 つに ★ を付けます。最初の文字は約 1 秒で出始めます。Obsidian Vault のメモも根拠に使えます
+- **深掘り**: 質問ごとに「少し深く(Sonnet)」「深く(Opus)」を押すと、Obsidian のノートを多めに読んで、結論・根拠(ノートの具体)・回答・注意・逆質問を出します
+- **用語**: 会話に出た専門用語・業界用語を拾い、短い説明と自分の Obsidian のノートを次々に並べます(度忘れ対策)
 - **先回り(質問タブ)**: 会話の流れから「今こちらから聞くとよいこと」を先に出します。相手から質問されたら、そちらが最優先です
 - **振り返り**: 録音を波形付きで再生できます。文字起こしの行を押すとその位置から再生し、終わるとサマリを作ります
 - **ライブ字幕**: 録音しなくても、スピーカーやマイクの音声を大きな字幕にします。確定した行を英語 / 日本語に訳せます。全画面の会議の上にも出せます
@@ -89,8 +91,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\setup.ps1
 
 ### Obsidian Vault を知識として使う(任意)
 
+⚙ の「Obsidian」(初回の案内にもあります)で Vault を選び、「索引を作る」を押します。Vault の一覧は Obsidian 本体から読みます(無ければ「フォルダを選ぶ…」)。検索はこのパソコンの中だけで行い、ノートの札を押すと Obsidian でそのノートが開きます。
+
+さらに **Obsidian の MCP サーバー**にもつなげます(任意・深掘りと用語の検索に足す)。既定の型は mcp-obsidian です:
+
+1. Obsidian のコミュニティプラグイン **Local REST API** を入れて有効にし、プラグインの設定画面の API キーを控える
+2. [uv](https://docs.astral.sh/uv/getting-started/installation/) を入れる(サーバーは `uvx mcp-obsidian` で起動します)
+3. ⚙ の「Obsidian の MCP サーバーにもつなぐ」をオンにし、キーを貼って「接続を確認」
+
+ほかの MCP サーバーは「コマンドで起動(stdio)」か「URL につなぐ(Streamable HTTP)」で使えます。端末から索引を作るときは次のとおりです(⚙ で選んだ Vault → `config.toml` の `vault_root` の順に読みます)。
+
 ```sh
-mkdir -p ~/.meeting-cue && cp config.example.toml ~/.meeting-cue/config.toml   # vault_root を自分の Vault に
 uv run --python 3.12 --no-project python -m meetcue.cli index                    # 索引を作る(以後は差分だけ)
 ```
 
@@ -128,7 +139,7 @@ uv run --python 3.12 --no-project --with pytest python -m pytest -q       # 試�
 | `meetcue/segmenter.py` | 発言の区切り(間の長さと文末の形で確定を決める) |
 | `meetcue/judge/` | 質問の判定(Jev・つながらないときの簡易判定)と、候補の採点(選ぶ係) |
 | `meetcue/cues/` | 生成 AI への接続(OpenRouter / Anthropic / OpenAI)と指示文 |
-| `meetcue/knowledge/` | Obsidian Vault の索引と検索(SQLite FTS5) |
+| `meetcue/knowledge/` | Obsidian Vault の索引と検索(SQLite FTS5)・保管庫の一覧とノートを開く(`obsidian.py`)・MCP クライアント(`mcp.py`) |
 | `meetcue/captions.py` | ライブ字幕と翻訳 |
 | `meetcue/ui/` | 画面(標準ライブラリの HTTP + SSE と、ビルド不要の HTML) |
 | `helpers/macos/` | Swift のヘルパー(音声認識・会議アプリの音の取り込み・ホットキー・ウィンドウとメニューバー) |

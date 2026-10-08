@@ -464,6 +464,25 @@ class Streamer:
         self.next_partial = time.perf_counter() + self.partial_every
 
 
+def quit_arrived(cq: queue.Queue, stop: threading.Event) -> bool:
+    """認識の合間に quit が届いたか。quit 以外(finalize)は戻して、いつもの場所で扱う。"""
+    if stop.is_set():
+        return True
+    keep, got = [], False
+    while True:
+        try:
+            cmd = cq.get_nowait()
+        except queue.Empty:
+            break
+        if cmd == "quit":
+            got = True
+        else:
+            keep.append(cmd)
+    for cmd in keep:
+        cq.put(cmd)
+    return got
+
+
 def read_commands(cq: queue.Queue) -> None:
     for line in sys.stdin:
         cmd = line.strip()
@@ -632,9 +651,19 @@ def main() -> int:
         closed.append(streamer.finalize_deadline())
         if quit_ or ended:   # 終わりはその場で閉じる
             closed.append(streamer.force_close())
-        for seg in closed:
-            if seg:
-                streamer.final(seg)
+        # 止めるときは録音を認識より先に閉じる。本体が止まって認識が溜まっていると、残りの区間の認識が本体の待ち時間を超え、
+        # 強制終了で m4a の目次が書かれず録音が丸ごと聞けなくなった(2026-10-08 Windows・14 分ぶん溜まっていた)
+        if (quit_ or ended) and recorder:
+            recorder.close()
+        segs = [seg for seg in closed if seg]
+        for i, seg in enumerate(segs):
+            streamer.final(seg)
+            if not (quit_ or ended) and i + 1 < len(segs) and quit_arrived(cq, stop):   # 溜まった区間の認識中に止められた
+                quit_ = True
+                if recorder:
+                    recorder.close()
+                diag({"phase": "quit_skipped", "segments": len(segs) - i - 1})
+                break
         if quit_:
             break
         streamer.maybe_partial()

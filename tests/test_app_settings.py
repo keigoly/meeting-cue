@@ -46,7 +46,9 @@ def test_defaults_and_onboarding_flag(env):
     assert v["need_onboarding"] is True and v["keychain"] is True and v["drive_accounts"] == ["a@example.com"]
     assert v["keys"]["openrouter"] == {"set": False, "source": None}
     assert v["providers_ready"] == ["anthropic", "openai", "openrouter"]                  # 第 2 段で 3 つとも
-    assert v["anthropic_models"] == {"main": "claude-sonnet-5", "fast": "claude-haiku-4-5", "deep": "claude-opus-5-5"}
+    assert v["anthropic_models"] == {"main": "claude-haiku-5-5", "fast": "claude-haiku-5-5", "mid": "claude-sonnet-5-5",
+                                     "deep": "claude-opus-5-5"}                                  # 2026-10-08: 既定は Haiku 5.5
+    assert v["openrouter_models"]["main"] == "anthropic/claude-haiku-5.5" and v["openrouter_models"]["mid"] == "anthropic/claude-sonnet-5.5"
     store["openrouter"] = "sk-or-v1-" + "x" * 40                 # キーがあれば案内は出さない(既存の利用者)
     assert a._api("GET", "/api/settings", None)[1]["need_onboarding"] is False
     store.clear()

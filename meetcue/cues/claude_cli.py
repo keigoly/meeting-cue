@@ -7,7 +7,8 @@
 - 個人の文脈を混ぜない: `--safe-mode`(CLAUDE.md・フック・MCP・プラグインを読まない)・`--tools ""`(道具なし)・
   `--no-session-persistence`・専用の作業フォルダ。指示(system)は利用者の発言の頭に入れて送る(起動時の system は共通の一文)。
 - 速さ(2026-09-26 実測・Sonnet 5): 毎回起動すると初トークン 4.5〜5.2 s。起動を済ませて待たせたプロセスなら送ってから 0.8〜1.7 s。
-  → Pool が model ごとに温めたプロセスを持ち、1 回の依頼ごとに使い捨てて補充する(会話を溜めない)。温めが無ければ都度起動。
+  → Pool が (model, effort) ごとに温めたプロセスを持ち、1 回の依頼ごとに使い捨てて補充する(会話を溜めない)。温めが無ければ都度起動。
+  2026-10-08: 既定の Haiku 5.5 は Claude Code から思考を切れないので、回答の役は `--effort low` で温める(cues/llm.py)。
 - 料金はプランの利用枠(API の台帳には数えない: cost_usd は None・extra["billing"] = "subscription")。
 - raise しない: 失敗は openrouter.StreamResult(ok=False, error=…) で返す。
 """
@@ -27,9 +28,11 @@ from .openrouter import StreamResult, _int, _ms
 
 MARKER = "claude-code-subscription"   # Pipeline の api_key 欄に入れる印(秘密ではない。LOCAL では None になり生成が止まる)
 SYSTEM = "指示と入力は利用者のメッセージにあります。指示どおりに、指定された書式だけを出力してください。"
+# 速い役(回答・質問タブ・用語・翻訳・サマリ)のプロセスの system。依頼文の一文(cues/llm.FAST_HINT)と両方に入れる
+# (2026-10-08 実測・Haiku 5.5 + effort low: 依頼文だけだと 13 回中 2 回 5〜8 s → 両方で 10 回とも 0.52〜1.14 s)
+FAST_SYSTEM = SYSTEM + "考える時間は取らず、すぐに出力を書き始めてください。"
 BASE_ARGS = ["-p", "--safe-mode", "--tools", "", "--no-session-persistence",
-             "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose",
-             "--system-prompt", SYSTEM]
+             "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
 
 
 def find_cli(hint: str = "") -> str | None:
@@ -43,10 +46,11 @@ def find_cli(hint: str = "") -> str | None:
 class _Proc:
     """1 回の依頼だけに使う claude -p(stream-json の入力を待つ状態で起動しておく)。"""
 
-    def __init__(self, cli: str, model: str, cwd: Path, effort: str | None = None):
-        self.model, self.effort = model, effort
+    def __init__(self, cli: str, model: str, cwd: Path, effort: str | None = None, fast: bool = False):
+        self.model, self.effort, self.fast = model, effort, fast
         self.t_spawn = time.monotonic()
-        args = [cli, *BASE_ARGS, "--model", model] + (["--effort", effort] if effort else [])
+        args = [cli, *BASE_ARGS, "--system-prompt", FAST_SYSTEM if fast else SYSTEM, "--model", model] + (
+            ["--effort", effort] if effort else [])
         env = {**os.environ, "NO_COLOR": "1"}
         self.p = subprocess.Popen(args, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True, bufsize=1, env=env)
@@ -68,11 +72,21 @@ class _Proc:
                 self.p.kill()
 
 
-class Pool:
-    """model ごとに温めたプロセスを warm 個持つ。take() で 1 つ渡してすぐ補充する。古いもの(max_age_s)は入れ替える。"""
+def _warm_key(k) -> tuple:
+    """温める鍵 model / (model, effort) / (model, effort, fast) → (model, effort, fast)。"""
+    k = k if isinstance(k, tuple) else (k,)
+    return (k[0], k[1] if len(k) > 1 else None, bool(k[2]) if len(k) > 2 else False)
 
-    def __init__(self, cli: str, cwd: Path, warm: dict[str, int] | None = None, max_age_s: float = 600.0):
-        self.cli, self.cwd, self.warm, self.max_age_s = cli, Path(cwd), dict(warm or {}), max_age_s
+
+def _warm_keys(warm: dict | None) -> dict[tuple, int]:
+    return {_warm_key(k): int(n) for k, n in (warm or {}).items()}
+
+
+class Pool:
+    """(model, effort, fast) ごとに温めたプロセスを warm 個持つ。take() で 1 つ渡してすぐ補充する。古いもの(max_age_s)は入れ替える。"""
+
+    def __init__(self, cli: str, cwd: Path, warm: dict | None = None, max_age_s: float = 600.0):
+        self.cli, self.cwd, self.warm, self.max_age_s = cli, Path(cwd), _warm_keys(warm), max_age_s
         self.cwd.mkdir(parents=True, exist_ok=True)
         self._idle: dict[tuple, list[_Proc]] = {}
         self._lock = threading.Lock()
@@ -82,8 +96,8 @@ class Pool:
         with self._lock:
             if self._closed:
                 return
-            for model, n in self.warm.items():
-                key = (model, None)
+            for key, n in self.warm.items():
+                model, effort, fast = key
                 keep = []
                 for pr in self._idle.get(key, []):
                     if pr.alive() and time.monotonic() - pr.t_spawn < self.max_age_s:
@@ -91,23 +105,23 @@ class Pool:
                     else:
                         pr.kill()
                 while len(keep) < n:
-                    keep.append(_Proc(self.cli, model, self.cwd))
+                    keep.append(_Proc(self.cli, model, self.cwd, effort, fast))
                 self._idle[key] = keep
 
-    def set_warm(self, warm: dict[str, int]) -> None:
-        """録音の開始で温め始め、終わったら空にする(待たせているプロセスを片付ける)。"""
+    def set_warm(self, warm: dict) -> None:
+        """録音の開始で温め始め、終わったら空にする(待たせているプロセスを片付ける)。鍵は model か (model, effort)。"""
         with self._lock:
-            self.warm = dict(warm)
-            extra = [pr for (m, e), lst in self._idle.items() if m not in self.warm or e is not None for pr in lst]
-            self._idle = {k: v for k, v in self._idle.items() if k[0] in self.warm and k[1] is None}
+            self.warm = _warm_keys(warm)
+            extra = [pr for k, lst in self._idle.items() if k not in self.warm for pr in lst]
+            self._idle = {k: v for k, v in self._idle.items() if k in self.warm}
         for pr in extra:
             pr.kill()
         if self.warm:
             threading.Thread(target=self.ensure, name="claude-cli-warm", daemon=True).start()
 
-    def take(self, model: str, effort: str | None = None) -> tuple[_Proc, bool]:
+    def take(self, model: str, effort: str | None = None, fast: bool = False) -> tuple[_Proc, bool]:
         """(プロセス, 温めてあったか)。温めが無ければその場で起動する(準備の分だけ遅い)。"""
-        key = (model, effort)
+        key = (model, effort, fast)
         pr, warm = None, False
         with self._lock:
             lst = self._idle.get(key, [])
@@ -118,8 +132,8 @@ class Pool:
                     break
                 cand.kill()
         if pr is None:
-            pr = _Proc(self.cli, model, self.cwd, effort)
-        if model in self.warm and effort is None:
+            pr = _Proc(self.cli, model, self.cwd, effort, fast)
+        if key in self.warm:
             threading.Thread(target=self.ensure, name="claude-cli-warm", daemon=True).start()
         return pr, warm
 
@@ -139,13 +153,14 @@ def _prompt(messages: list[dict]) -> str:
 
 
 def stream_chat(messages: list[dict], *, pool: Pool | None, model: str, timeout: int = 60, effort: str | None = None,
+                fast: bool = False,
                 on_delta: Callable[[str], None] | None = None,
                 should_stop: Callable[[], bool] | None = None, **_ignored) -> StreamResult:
     if pool is None:
         return StreamResult(False, error="no_cli", model=model, detail="Claude Code(claude)が見つかりません")
     t0 = time.perf_counter()
     try:
-        pr, warm = pool.take(model, effort)
+        pr, warm = pool.take(model, effort, fast)
     except OSError as e:
         return StreamResult(False, error="no_cli", model=model, detail=str(e)[:200])
     res = StreamResult(False, model=model, provider="Claude Code")

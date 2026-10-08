@@ -153,8 +153,14 @@ def session_detail(root, sid: str) -> dict | None:
                           "speech_act": s.get("speech_act"), "to_me": s.get("to_me"), "intent": s.get("intent")}
     cues: dict[str, dict] = {}
     plans: list[dict] = []
+    glossary: list[dict] = []
     t0 = row["started_ms"] or 0
     for c in _jsonl(d / "cues.jsonl"):
+        if c.get("kind") == "glossary":   # 用語タブ(FR-6e): 語ごとに(出た順)
+            for it in c.get("items") or []:
+                glossary.append({k: it.get(k) for k in ("term", "reading", "field", "desc", "source", "notes", "llm")}
+                                | {"at_s": round(((it.get("at_ms") or c.get("at_ms") or t0) - t0) / 1000, 1)})
+            continue
         if c.get("kind") == "plan":   # 質問タブ(U3)
             items = c.get("items") or []
             order = [x["index"] for x in (c.get("ranking") or []) if x.get("total") is not None]
@@ -165,7 +171,11 @@ def session_detail(root, sid: str) -> dict | None:
                           "error": c.get("error"), "at_s": round(((c.get("at_ms") or t0) - t0) / 1000, 1),
                           "items": ranked + rest})
             continue
-        e = cues.setdefault(c["rid"], {"intent": "", "answers": [], "counters": [], "knowledge": []})
+        e = cues.setdefault(c["rid"], {"intent": "", "answers": [], "counters": [], "knowledge": [], "digs": []})
+        if c.get("kind") == "dig":   # 深掘り(FR-6d): 段ごとに 1 件(同じ段は 1 回だけ)
+            e["digs"].append({k: c.get(k) for k in ("level", "model", "ok", "error", "conclusion", "evidence", "answers",
+                                                     "cautions", "counters", "notes")})
+            continue
         if c.get("kind") == "knowledge":
             e["knowledge"] = c.get("items", [])
             continue
@@ -183,7 +193,7 @@ def session_detail(root, sid: str) -> dict | None:
                    "start_seconds": r.get("start_seconds"), "end_seconds": r.get("end_seconds"),
                    "at_s": round((r.get("t_ms", t0) - t0) / 1000, 1)} for r in _jsonl(d / "transcript.jsonl")]
     sm = d / "summary.md"
-    return {**row, "transcript": transcript, "judgments": judg, "cues": cues, "plans": plans,
+    return {**row, "transcript": transcript, "judgments": judg, "cues": cues, "plans": plans, "glossary": glossary,
             "summary": sm.read_text(encoding="utf-8") if sm.exists() else None}
 
 

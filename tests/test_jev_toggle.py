@@ -56,7 +56,7 @@ def test_generation_target_and_jev_key_are_separate(tmp_path):
     t = llm.target_for(cfg, "anthropic", "gen-key", {})
     p = pl.Pipeline(cfg, session, FakeUI(), [], api_key="gen-key", target=t, jev_api_key="openrouter-key")
     assert p.target.provider == "anthropic" and p.target.api_key == "gen-key" and p.jev_key == "openrouter-key"
-    assert p.model == "claude-sonnet-5" and p.llm_enabled
+    assert p.model == "claude-haiku-5-5" and p.llm_enabled
     local = Config(app_dir=tmp_path, privacy="local")                     # LOCAL はどちらのキーも持たない
     s2 = Session(tmp_path / "s2", mode="participant", privacy="local", sources=[], model="m")
     p2 = pl.Pipeline(local, s2, FakeUI(), [], api_key="gen-key", target=llm.target_for(local, "anthropic", "gen-key", {}),

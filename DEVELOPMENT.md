@@ -14,7 +14,10 @@
 - 本番で「別の機器で再生した音声」は tap に入らない(Mac 自身の出力だけ)。tap に無音が届いても helper は音量を記録しないため、記録から直接は判別できない(10 s ごとの「あ」が目印)。スピーカー再生だと相手の声がマイクに回り込む(46 件中 42 件)。
 - E2E(発話確定 → 最初のキュー行)が p50 2.58 s で予算 2.5 s をわずかに超える(spikes/PHASE0_RESULTS.md §e)。
 - Jev の `to_me` は 10 件でしか較正していない(閾値 0.5 は仮)。
-- Vault 検索は一般語(費用・リスク)で雑音を拾う。
+- Vault 検索は一般語(費用・リスク)で雑音を拾う。深掘りと用語は 2026-10-08 から専門語らしい語(英字・3 字以上)だけで引く(一般語を入れると的外れのノートが上に来た)が、`youtube` のような英字の一般語はまだ雑音を拾う。
+- 既定の生成モデルは 2026-10-08 から **Claude Haiku 5.5**(回答・質問タブ・用語・サマリ・翻訳)。Sonnet 5.5 / Opus 5.5 は押したときの深掘り。Claude Code(サブスク)は Haiku 5.5 の思考を切れないので、速い役は `--effort low` + 「すぐ書き始める」一文(依頼文と起動時の system の両方)で初トークン 0.54〜0.64 s。どちらかを外すと 4〜11 s に戻る(`spikes/PHASE0_RESULTS.md` §h)。用語のノートの抜粋を長くしても(300 字)考え込んで 4.5 s 台になる。
+- Obsidian の MCP(FR-5b): クライアントは stdlib(`meetcue/knowledge/mcp.py`)。既定の型 mcp-obsidian は Obsidian の Local REST API が動いていないと「MCP サーバーにはつながるが検索は失敗」になる(「接続を確認」が直し方を出す)。失敗は索引だけで続ける。
+- 音声認識が崩した固有名詞(GlobalProtect → 「グロールプラテクト」)は用語タブにそのまま出ることがある(説明で誤表記と補う)。置き換え辞書で直す。
 - 実マイク・実 Zoom(process tap)は未試験(tap はファイル再生の経路で GO・`tap_create status=0`)。
 - Windows(2026-09-27・初版): STT ヘルパー(faster-whisper large-v3-turbo)・取り込み(PyAudioWPatch)・ウィンドウ(pywebview)・キーの保管(資格情報マネージャー)・書き出し・セットアップとスタートメニュー(`packaging/windows/`)。タスクトレイ・ホットキー・自動更新・字幕の固定・Google Drive は次の版。画面の文言は 2026-09-28 に両方の OS に通じる書き方へ(「このパソコン」「OS の鍵の保管庫(Mac はキーチェーン・Windows は資格情報マネージャー)」・HTML は共通のまま)。本体は Windows の既定の文字コード(cp932)だと落ちるので UTF-8 モードで動かす(起動の入口は対応済み)。詳細は `helpers/windows/DEVELOPMENT.md`・`packaging/windows/DEVELOPMENT.md`。
 - 起動直前に音量を変えると Core Audio の再構成で tap の `device_start` が 80 秒以上待たされる(2026-09-25 実測・run1)。会議アプリと音量を整えてから起動する。
@@ -24,13 +27,15 @@
 
 ### Step 1: 調査とログ追加(見える化)
 - まず `~/.meeting-cue/sessions/<session>/metrics.jsonl` を読む。全段が `rid`(発話 id)・`phase`・`ms`・`ok`・`error` を持つ。`python -m meetcue.cli report <session>` で judge / retrieve / generate の p50/p90 と `e2e_first_cue` が出る。
+- 深掘りは `dig_request` → `dig_retrieve`(索引と MCP の件数・`mcp_ms`・`mcp_error`)→ `dig_start` → `dig`(`ms_first_token`・`evidence`・`answers`)、用語は `glossary_start`(候補語・先に引けたノート)→ `glossary`(`items`・`with_notes`・`mcp`)。キーは `<rid>-<段>` / `G<連番>`。
 - セグメンターの切り所は `phase=segment`(`tail_kind` / `forced` / `dropped`)と `pause_finalize`(`idle_ms` / `threshold_ms`)を突き合わせる。STT 側は `helper_*`(Swift の stderr 診断)。
+- 本体が止まった(発言も音量の `level_5s` も途絶えた)ら `phase=loop_stall`(`ms`)と、アプリのログ(Windows は `~/.meeting-cue/logs/app-<日時>.log`)の `Timeout (0:00:20)!` の節を見る。ループが 20 s 回らなかった時点の全スレッドの呼び出し位置が書かれている(`meetcue/stall.py`・faulthandler なので GIL を握ったまま止まっても書ける)。2026-10-08 の Windows の 14 分の停止はこれが無く原因を特定できなかった。
 - Jev の判定は `judgments.jsonl`(`summary` の確率)。誤起動・取りこぼしは発話本文と並べて手ラベルを付ける。
 - 再現は合成音声で: `say -v Kyoko -o tests/fixtures/x.aiff "…[[slnc 1500]]…"` → `meetcue run --source file:tests/fixtures/x.aiff:system`。
 - 結果を確認してから Step 2 へ。
 
 ### Step 2: 原因箇所のみ最小限の改修
-- 段の境界を越えて直さない: `segmenter.py`(切り所)/ `judge/`(判定・閾値・`selector.py` の物差しと重み)/ `knowledge/index.py`(検索語・索引)/ `cues/prompts.py`(書式・文面)/ `pipeline.py`(結線・打ち切り・操作・音量の振り分けと無音警告・質問タブの起動条件と優先制御 `_plan_blocked` / `_after_answers`)/ `app.py`(常駐・開始/停止・API・右クリックの操作 `_session_op`)+ `library.py`(記録の一覧・詳細・題名・書き出し・Google Drive へ移動・ゴミ箱。置き場は Mac + Drive の並び)/ `ui/web.py` + `ui/static/app.html`(本体のウィンドウ)・`index.html`(旧・半透明パネル)/ `summary.py`(会議後サマリ)/ `replacements.py`(置き換え辞書: 確定と途中の文を正しい語へ。Pipeline・ライブ字幕・⚙ の API が同じファイルを読む)/ `captions.py`(ライブ字幕: 録音していない間の字幕だけの動き `CaptionRunner` と翻訳 `Translator`)+ `ui/static/caption.html`(字幕の画面)/ `secrets.py`(API キー: キーチェーン → 環境変数 → `~/.secrets`・キーを画面やログに出さない)+ `providers.py`(接続先とキーの「確認」)+ `cues/llm.py`(接続先ごとの生成・役割 main / fast / deep・料金の計算)+ `cues/anthropic_direct.py`・`cues/openai_direct.py`(stdlib の SSE クライアント。契約は openrouter.StreamResult と同じ)+ `cues/claude_cli.py`(開発者向けの Claude サブスク: 本人の Claude Code を温めて使い捨てる Pool。`[llm] subscription_cli` で有効)+ `app.py` の `settings_view` / `_keys_api`(設定画面・FR-10b)/ `helpers/macos/*`(Swift ヘルパー。契約は stdout JSONL・stdin quit。音量は stderr `phase=level`。`mix_helper` は書き出し用で stdout に結果 JSON 1 行)/ `packaging/`(起動ラッパー)。
+- 段の境界を越えて直さない: `segmenter.py`(切り所)/ `judge/`(判定・閾値・`selector.py` の物差しと重み)/ `knowledge/index.py`(検索語・索引)/ `cues/prompts.py`(書式・文面)/ `pipeline.py`(結線・打ち切り・操作・音量の振り分けと無音警告・質問タブの起動条件と優先制御 `_plan_blocked` / `_after_answers`)/ `app.py`(常駐・開始/停止・API・右クリックの操作 `_session_op`)+ `library.py`(記録の一覧・詳細・題名・書き出し・Google Drive へ移動・ゴミ箱。置き場は Mac + Drive の並び)/ `ui/web.py` + `ui/static/app.html`(本体のウィンドウ)・`index.html`(旧・半透明パネル)/ `summary.py`(会議後サマリ)/ `replacements.py`(置き換え辞書: 確定と途中の文を正しい語へ。Pipeline・ライブ字幕・⚙ の API が同じファイルを読む)/ `captions.py`(ライブ字幕: 録音していない間の字幕だけの動き `CaptionRunner` と翻訳 `Translator`)+ `ui/static/caption.html`(字幕の画面)/ `knowledge/obsidian.py`(Obsidian の保管庫の一覧・Vault の決め方・索引の作り方・ノートを開く)+ `knowledge/mcp.py`(MCP クライアントと検索・FR-5b)/ `pipeline.py` の `_run_dig`(深掘り FR-6d)・`_run_glossary`(用語 FR-6e)/ `secrets.py`(API キー: キーチェーン → 環境変数 → `~/.secrets`・キーを画面やログに出さない)+ `providers.py`(接続先とキーの「確認」)+ `cues/llm.py`(接続先ごとの生成・役割 main / fast / deep・料金の計算)+ `cues/anthropic_direct.py`・`cues/openai_direct.py`(stdlib の SSE クライアント。契約は openrouter.StreamResult と同じ)+ `cues/claude_cli.py`(開発者向けの Claude サブスク: 本人の Claude Code を温めて使い捨てる Pool。`[llm] subscription_cli` で有効)+ `app.py` の `settings_view` / `_keys_api`(設定画面・FR-10b)/ `helpers/macos/*`(Swift ヘルパー。契約は stdout JSONL・stdin quit。音量は stderr `phase=level`。`mix_helper` は書き出し用で stdout に結果 JSON 1 行)/ `packaging/`(起動ラッパー)。
 - しきい値は `config.toml` で変える(コードの既定値は実測の根拠をコメントで残す)。
 - 冪等性: 発話は `rid` で一意。同じ発話に二重生成しない。新しい質問が来たら古い生成は `cancelled` で打ち切る(失敗に数えない)。
 - 結果を確認してから Step 3 へ。

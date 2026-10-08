@@ -19,6 +19,7 @@ from pathlib import Path
 
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ]+")
 _ASCII_WORD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_\-\.]{1,}")
+_ASCII_ONLY = re.compile(r"[a-z0-9_\-\. ]+")
 _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$", re.M)
 _WIKILINK = re.compile(r"\[\[([^\]|]+)(\|[^\]]*)?\]\]")
@@ -139,6 +140,7 @@ class Hit:
     heading: str
     body: str
     rank: float
+    source: str = "index"   # index(この索引)/ mcp(Obsidian の MCP 検索・FR-5b)
 
     def snippet(self, terms: list[str], width: int = 160) -> str:
         b = self.body.replace("\n", " ")
@@ -148,6 +150,15 @@ class Hit:
                 s = max(0, i - width // 3)
                 return ("…" if s else "") + b[s:s + width] + ("…" if s + width < len(b) else "")
         return b[:width] + ("…" if len(b) > width else "")
+
+
+def title_rank(h: Hit, term: str) -> int:
+    """0 = ノートの題名か見出しがその語そのもの / 1 = 題名か見出しに語を含む / 2 = 本文だけ。"""
+    t = (term or "").strip().lower()
+    stem, head = Path(h.path).stem.lower(), (h.heading or "").strip().lower()
+    if t and t in (stem, head):
+        return 0
+    return 1 if t and (t in stem or t in head) else 2
 
 
 class VaultIndex:
@@ -182,6 +193,8 @@ class VaultIndex:
             for f in base.rglob("*.md"):
                 rel = f.relative_to(root).as_posix()
                 if any(rel == ex or rel.startswith(ex.rstrip("/") + "/") for ex in exclude):
+                    continue
+                if any(part.startswith(".") for part in Path(rel).parts):   # .obsidian / .trash などは読まない
                     continue
                 seen.add(rel)
                 try:
@@ -251,6 +264,20 @@ class VaultIndex:
                 hits.sort(key=lambda x: x.rank)
                 return hits[:k]
         return []
+
+    def lookup(self, term: str, *, k: int = 2) -> list[Hit]:
+        """語そのものを含むチャンク(用語タブ FR-6e)。ノートの題名・見出しに語があるものを先に。"""
+        t = (term or "").strip().lower()
+        if not t:
+            return []
+        if _ASCII_ONLY.fullmatch(t):   # 英字の語は単語の区切りで(「bsw」が別の語の一部に当たらないように・2026-10-08)
+            pat = re.compile(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])")
+            has = lambda x: bool(pat.search(x.lower()))  # noqa: E731
+        else:
+            has = lambda x: t in x.lower()  # noqa: E731
+        hits = [h for h in self.search(term, k=k * 4, terms=[term])
+                if has(h.body) or has(Path(h.path).stem) or has(h.heading or "")]
+        return sorted(hits, key=lambda h: (title_rank(h, term), h.rank))[:k]
 
     def stats(self) -> dict:
         f = self.con.execute("SELECT COUNT(*) FROM files").fetchone()[0]

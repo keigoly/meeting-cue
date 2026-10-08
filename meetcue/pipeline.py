@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -20,7 +21,7 @@ from pathlib import Path
 from .config import Config
 from .cues import llm, prompts
 from .judge import heuristic, jev, selector
-from .knowledge.index import VaultIndex, query_terms
+from .knowledge.index import VaultIndex, query_terms, title_rank
 from .ledger import Ledger
 from .metrics import new_rid
 from .replacements import Replacer
@@ -128,7 +129,8 @@ class Pipeline:
         self.jev_key = jk if (jev_enabled and cfg.privacy != "local") else None
         self.model = target.model if target else (model or cfg.llm.model)
         self.target = target or llm.Target("openrouter", self.api_key, self.model, cfg.llm.fast_model,
-                                           cfg.planner.deep_model, {}, cfg.llm.provider_order or None)
+                                           cfg.planner.deep_model, {}, cfg.llm.provider_order or None,
+                                           mid_model=cfg.planner.mid_model)
         self.target.api_key = self.api_key   # LOCAL ではキーを持たせない
         self.m = session.metrics
         self.replacer = Replacer(cfg.app_dir / "replacements.txt")   # 置き換え辞書(⚙ で編集・更新時刻で読み直す)
@@ -168,16 +170,31 @@ class Pipeline:
         self._answer_active = False                     # 相手の質問への回答を生成中
         self._plan_block_until = 0.0                    # 回答の後の冷却(monotonic)
         self.plan_auto = cfg.planner.enabled and cfg.planner.auto
+        # 深掘り(FR-6d・2026-10-08): 相手の発言(rid)→ 掘り下げに要るもの。押されたら mid(Sonnet)/ deep(Opus)を別タスクで。
+        # 手動の依頼なので次の質問では打ち切らない(止め札は停止のときだけ立てる)。(rid, 段) で冪等
+        self._utts: dict[str, tuple] = {}
+        self._digs: dict[tuple, asyncio.Task] = {}
+        self._dig_stop = threading.Event()
+        # Obsidian の MCP 検索(FR-5b)。App が渡す: (語のリスト, 件数) → [Hit]。None なら索引だけ
+        self.mcp_search = None
+        # 用語タブ(FR-6e・2026-10-08): 確定した発言(相手・自分)を貯め、間隔と字数を満たしたら Haiku で専門用語を拾う
+        self.gloss_auto = cfg.glossary.enabled and cfg.glossary.auto
+        self._gloss_buf: list[tuple[str, str]] = []
+        self._gloss_seen: set[str] = set()      # 出した語(正規化)。1 回の録音で 1 度だけ
+        self._gloss_task: asyncio.Task | None = None
+        self._gloss_last = -1e9
+        self._gloss_seq = 0
+        self._gloss_pending = False             # 回答中に押された手動の依頼
 
     MODES = ("participant", "presenter", "audience")
 
     # ---- 操作(ホットキー / Web UI のボタン) ------------------------------------------
-    def action_threadsafe(self, name: str) -> None:
+    def action_threadsafe(self, name: str, body: dict | None = None) -> None:
         """別スレッド(HTTP サーバ)から呼ぶ。"""
         if self._loop:
-            self._loop.call_soon_threadsafe(self.action, name)
+            self._loop.call_soon_threadsafe(self.action, name, body)
 
-    def action(self, name: str) -> None:
+    def action(self, name: str, body: dict | None = None) -> None:
         if name in ("toggle_pause", "pause", "resume"):
             new = (not self.paused) if name == "toggle_pause" else (name == "pause")
             if new != self.paused:
@@ -209,8 +226,18 @@ class Pipeline:
             self.m.emit(u.rid, "deepdive")
             self.ui.status(f"深掘り: #{u.rid} {u.text[:40]}")
             asyncio.ensure_future(self._start_generation(u, prev, summary, hits, force=True))
-        elif name in ("plan", "plan_deep"):
-            self._request_plan("deep" if name == "plan_deep" else "manual")
+        elif name == "dig":
+            b = body or {}
+            self._request_dig(str(b.get("rid") or ""), str(b.get("level") or ""))
+        elif name == "glossary":
+            self._request_glossary()
+        elif name == "glossary_auto":
+            self.gloss_auto = not self.gloss_auto
+            self.m.emit("CTL", "glossary_auto", on=self.gloss_auto)
+            self.ui.status("用語タブ: 自動で拾う " + ("オン" if self.gloss_auto else "オフ"))
+            self._set_state(glossary_auto=self.gloss_auto)
+        elif name in ("plan", "plan_mid", "plan_deep"):
+            self._request_plan({"plan_deep": "deep", "plan_mid": "mid"}.get(name, "manual"))
         elif name == "plan_auto":
             self.plan_auto = not self.plan_auto
             self.m.emit("CTL", "plan_auto", on=self.plan_auto)
@@ -299,7 +326,7 @@ class Pipeline:
         loop = asyncio.get_running_loop()
         self._loop = loop
         self._stop_ev = asyncio.Event()
-        self._set_state(plan_auto=self.plan_auto)
+        self._set_state(plan_auto=self.plan_auto, glossary_auto=self.gloss_auto)
         self._set_state(mode=self.cfg.mode, privacy=self.cfg.privacy, paused=False,
                         session=self.session.dir.name, llm=self.model if self.llm_enabled else "off")
         await self._spawn_aux()
@@ -370,15 +397,18 @@ class Pipeline:
             await self._queue.join()
             t_queue = time.perf_counter()
             self._plan_stop.set()   # 質問タブは停止時に打ち切る(回答の生成だけ最後まで待つ)
-            pending = [t for t in self._gen_tasks if not t.done()]
+            pending = [t for t in self._gen_tasks if not t.done()] + [t for t in self._digs.values() if not t.done()]
             if self._plan_task and not self._plan_task.done():
                 pending.append(self._plan_task)
+            if self._gloss_task and not self._gloss_task.done():
+                pending.append(self._gloss_task)
             timed_out = False
             if pending:
                 try:
                     await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=25)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     self._gen_stop.set()
+                    self._dig_stop.set()
                     timed_out = True
             consumer.cancel()
             t_end = time.perf_counter()
@@ -456,6 +486,7 @@ class Pipeline:
             try:
                 await self._handle(u)
                 self._maybe_plan()   # 質問タブ(自動)。別タスクで動かし、判定の列は止めない
+                self._maybe_glossary()   # 用語タブ(自動)。同じく別タスク
             except Exception as e:  # noqa: BLE001 — 1 発話の失敗で止めない
                 self.counts["failed"] += 1
                 self.m.emit(u.rid, "handle_error", error=f"{type(e).__name__}: {e}")
@@ -478,16 +509,17 @@ class Pipeline:
         self.context.append(f"[{u.channel}] {u.text}")
         self.context = self.context[-20:]
         self._convo.append((u.channel, u.text))
+        self._gloss_buf = (self._gloss_buf + [(u.channel, u.text)])[-60:]
         self._plan_chars += len(u.text)
         if u.channel == "mic":
             return
         if self.paused:
             self.m.emit(u.rid, "skipped_paused")
-            self._recent.append((u, prev, None, []))
+            self._remember(u, prev, None, [])
             return
         if not self.jev_enabled:   # 設定で判定をオフ: 文字起こしと録音だけ(深掘り ⌃⌥D は手動なので使える)
             self.m.emit(u.rid, "judge_skipped", reason="jev_off")
-            self._recent.append((u, prev, None, []))
+            self._remember(u, prev, None, [])
             return
         # 判定 -------------------------------------------------------------
         cfg = self.cfg
@@ -533,11 +565,19 @@ class Pipeline:
                 if not trigger:
                     self.m.emit(u.rid, "e2e_first_cue", ms=int(time.time() * 1000) - u.t_final_ms, kind="knowledge")
         self._last_other = (u, prev, summary, hits)
-        self._recent.append((u, prev, summary, hits))
+        self._remember(u, prev, summary, hits)
         if not trigger:
             return
         self.counts["triggered"] += 1
         await self._start_generation(u, prev, summary, hits)
+
+    UTT_KEEP = 300   # 深掘りできる相手の発言の数(古いものから忘れる)
+
+    def _remember(self, u: Utterance, prev: list[str], summary: dict | None, hits: list) -> None:
+        self._recent.append((u, prev, summary, hits))
+        self._utts[u.rid] = (u, prev, summary, hits)
+        while len(self._utts) > self.UTT_KEEP:
+            self._utts.pop(next(iter(self._utts)))
 
     async def _start_generation(self, u: Utterance, prev: list[str], summary: dict, hits: list, *,
                                 force: bool = False) -> None:
@@ -601,7 +641,7 @@ class Pipeline:
         return None
 
     def _maybe_plan(self) -> None:
-        """自動: 話が進んだら(前回から min_new_chars 字・interval_s 秒以上)Sonnet で考える。"""
+        """自動: 話が進んだら(前回から min_new_chars 字・interval_s 秒以上)main(Haiku 5.5)で考える。"""
         pc = self.cfg.planner
         if not self.plan_auto or self._plan_blocked():
             return
@@ -610,17 +650,17 @@ class Pipeline:
         self._launch_plan("auto")
 
     def _request_plan(self, kind: str) -> None:
-        """手動(今の話で質問を考える = Sonnet / 深く考える = Opus)。回答中なら終わってから。"""
+        """手動(今の話で質問を考える = Haiku / 少し深く = Sonnet / 深く考える = Opus)。回答中なら終わってから。"""
         why = self._plan_blocked(manual=True)
         if why == "answering":
             self._plan_pending = kind
             self.ui.status("相手の質問への回答を優先しています。終わったら質問を考えます")
             return
         if why == "running":
-            if kind != "deep":
+            if kind not in ("mid", "deep"):
                 self.ui.status("質問を考えています…")
                 return
-            self._plan_stop.set()   # 深く考える は自動の途中でも差し替える
+            self._plan_stop.set()   # 少し深く・深く考える は自動の途中でも差し替える
             self._plan_pending = kind
             return
         if why:
@@ -650,6 +690,9 @@ class Pipeline:
         if self._plan_pending and not self._plan_blocked(manual=True):
             kind, self._plan_pending = self._plan_pending, None
             self._launch_plan(kind)
+        if self._gloss_pending and not (self._gloss_task and not self._gloss_task.done()):
+            self._gloss_pending = False
+            self._launch_glossary("manual")
 
     def _plan_transcript(self, limit_chars: int) -> list[str]:
         lines: list[str] = []
@@ -664,16 +707,17 @@ class Pipeline:
 
     async def _run_plan(self, pid: str, kind: str, stop_flag: threading.Event) -> None:
         cfg, pc = self.cfg, self.cfg.planner
-        if self.target.provider == "openrouter":   # 質問タブのモデル指定(pc.model / deep_model)は OpenRouter の名前
-            model = pc.deep_model if kind == "deep" else (pc.model or self.model)
+        role = kind if kind in llm.DEEP_ROLES else "main"   # auto / manual = main(Haiku)・mid = Sonnet・deep = Opus
+        if self.target.provider == "openrouter":   # 質問タブのモデル指定(pc.model / mid_model / deep_model)は OpenRouter の名前
+            model = {"deep": pc.deep_model, "mid": pc.mid_model}.get(kind) or pc.model or self.model
         else:
-            model = self.target.model_for("deep" if kind == "deep" else "main")
-        transcript = self._plan_transcript(pc.deep_context_chars if kind == "deep" else pc.context_chars)
+            model = self.target.model_for(role)
+        transcript = self._plan_transcript({"deep": pc.deep_context_chars, "mid": pc.mid_context_chars}.get(kind, pc.context_chars))
         recent = " ".join(t for _, t in list(self._convo)[-6:])
         last_other = next((t for ch, t in reversed(self._convo) if ch != "mic"), recent)
         hits = self.index.search(recent, k=cfg.index.top_k, terms=query_terms(recent)) if self.index and recent else []
         msgs = prompts.build_plan_messages(mode=cfg.mode, profile=cfg.profile, transcript=transcript, hits=hits,
-                                           n=pc.n, deep=kind == "deep")
+                                           n=pc.n, deep=kind == "deep", mid=kind == "mid")
         self.m.emit(pid, "plan_start", trigger=kind, model=model, lines=len(transcript), hits=len(hits))
         self._ui("plan_start", pid, kind, model)
         loop = asyncio.get_running_loop()
@@ -707,11 +751,10 @@ class Pipeline:
             if "\n" in d:
                 loop.call_soon_threadsafe(flush)
 
-        deep = kind == "deep"
         r = await asyncio.to_thread(
-            llm.stream, self.target, msgs, role="deep" if deep else "main", model=model, timeout=cfg.llm.timeout_s,
-            max_tokens=pc.deep_max_tokens if deep else pc.max_tokens, on_delta=on_delta, should_stop=stop_flag.is_set,
-            effort=pc.deep_reasoning if deep else None)
+            llm.stream, self.target, msgs, role=role, model=model, timeout=cfg.llm.timeout_s,
+            max_tokens={"deep": pc.deep_max_tokens, "mid": pc.mid_max_tokens}.get(kind, pc.max_tokens), on_delta=on_delta,
+            should_stop=stop_flag.is_set, effort={"deep": pc.deep_reasoning, "mid": pc.mid_reasoning}.get(kind))
         flush(final=True)
         self.ledger.record(r.cost_usd)
         items = prompts.parse_plan_lines(r.text) if r.text else []
@@ -743,9 +786,260 @@ class Pipeline:
                                      "ms_first_token": r.ms_first_token, "ms_total": r.ms_total,
                                      "cost_usd": r.cost_usd, "at_ms": int(time.time() * 1000)})
         self._ui("plan_done", pid, r.ok, r.error, r.ms_first_token, r.ms_total, r.cost_usd)
-        if r.error == "cancelled" and self._plan_pending == "deep" and not self._plan_blocked(manual=True):
-            self._plan_pending = None   # 深く考える で差し替えた自動の後
-            self._launch_plan("deep")
+        if r.error == "cancelled" and self._plan_pending in ("mid", "deep"):
+            # 少し深く・深く考える で差し替えた自動の後。この task が終わってから始める(ここで調べると、まだ走っている
+            # 自分自身を「running」と見て始めなかった・2026-10-08 に見つけた不具合)
+            asyncio.get_running_loop().call_soon(self._launch_pending_plan)
+
+    def _launch_pending_plan(self) -> None:
+        if self._plan_pending in ("mid", "deep") and not self._plan_blocked(manual=True):
+            kind, self._plan_pending = self._plan_pending, None
+            self._launch_plan(kind)
+
+    # ---- 用語タブ(FR-6e・2026-10-08): 会話に出た専門用語に短い説明と自分のノートを付ける ----------------------------------
+    @staticmethod
+    def _gloss_norm(term: str) -> str:
+        return "".join(ch for ch in term.lower() if ch not in " 　・-_/()（）「」")
+
+    @staticmethod
+    def _jargon_like(term: str) -> bool:
+        """先に索引を引く候補語の形: 英字の語・3 字以上のカタカナ・3 字以上の漢字語(漢字 2 字の「運用」「移行」のような
+        仕事の一般語を並べると Haiku が拾う語と受け取った・2026-10-08 合成音声の通しで実測)。"""
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_\-\.]*", term):
+            return len(term) >= 2 and not term.isdigit()
+        return len(term) >= 3
+
+    def _maybe_glossary(self) -> None:
+        """自動: 前回から min_chars 字・interval_s 秒以上。回答の生成中・一時停止中・走っている間は始めない。"""
+        gc = self.cfg.glossary
+        if not (gc.enabled and self.gloss_auto) or self.paused:
+            return
+        if (self._gloss_task and not self._gloss_task.done()) or self._answer_active or any(not t.done() for t in self._gen_tasks):
+            return
+        if sum(len(t) for _, t in self._gloss_buf) < gc.min_chars or time.monotonic() - self._gloss_last < gc.interval_s:
+            return
+        self._launch_glossary("auto")
+
+    def _request_glossary(self) -> None:
+        """手動(今の話から用語を拾う)。回答中なら回答の後で。"""
+        if self._gloss_task and not self._gloss_task.done():
+            self.ui.status("用語を拾っています…")
+            return
+        if not (self._gloss_buf or self._convo):
+            self.ui.status("まだ会話がありません")
+            return
+        if self._answer_active or any(not t.done() for t in self._gen_tasks):
+            self._gloss_pending = True
+            self.ui.status("相手の質問への回答を優先しています。終わったら用語を拾います")
+            return
+        self._launch_glossary("manual")
+
+    def _launch_glossary(self, kind: str) -> None:
+        lines = self._gloss_buf or list(self._convo)[-8:]   # 手動で新しい発言が無ければ直近を見直す
+        self._gloss_buf = []
+        self._gloss_last = time.monotonic()
+        self._gloss_seq += 1
+        gid = f"G{self._gloss_seq:02d}{new_rid()[:6]}"
+        self._gloss_task = asyncio.create_task(self._run_glossary(gid, kind, list(lines)))
+
+    def _gloss_notes(self, term: str) -> list:
+        return self.index.lookup(term, k=self.cfg.glossary.notes_per_term) if self.index else []
+
+    @staticmethod
+    def _note(h, term: str) -> dict:
+        return {"path": h.path, "heading": h.heading, "snippet": h.snippet([term], 160), "source": h.source}
+
+    async def _run_glossary(self, gid: str, kind: str, lines: list[tuple[str, str]]) -> None:
+        cfg, gc = self.cfg, self.cfg.glossary
+        text = "\n".join(f"{'自分' if ch == 'mic' else '相手'}: {t}" for ch, t in lines)[-gc.context_chars:]
+        low = text.lower()   # 候補語は英字が小文字になるので、会話の中の表記(SASE など)に戻す
+        cands = [text[i:i + len(t)] if (i := low.find(t.lower())) >= 0 else t
+                 for t in query_terms(text, max_terms=gc.candidates * 3)
+                 if self._gloss_norm(t) not in self._gloss_seen and self._jargon_like(t)]
+        pre: dict = {}
+        for t in cands[:gc.candidates]:   # 候補語で索引を先に引く(ノートを根拠に説明させる)
+            hs = self._gloss_notes(t)[:1]
+            if hs:
+                pre[t] = hs[0]
+        use_llm = self.llm_enabled and self.ledger.allowed()
+        self.m.emit(gid, "glossary_start", trigger=kind, chars=len(text), candidates=len(cands), vault=len(pre), llm=use_llm)
+        self._ui("glossary_start", gid, kind)
+        items: list[dict] = []
+        mcp_tasks: list[asyncio.Task] = []
+
+        def add(it: dict) -> None:
+            norm = self._gloss_norm(it["term"])
+            if not norm or norm in self._gloss_seen:
+                return
+            self._gloss_seen.add(norm)
+            hs = self._gloss_notes(it["term"])
+            it["notes"] = [self._note(h, it["term"]) for h in hs]
+            it["at_ms"] = int(time.time() * 1000)
+            items.append(it)
+            self._ui("glossary_item", gid, {**it, "notes": list(it["notes"])})   # 写し(MCP のノートは後で glossary_notes)
+            if not hs and self.mcp_search and len(mcp_tasks) < gc.mcp_per_run:   # 索引に無ければ MCP で探す(届いたら足す)
+                mcp_tasks.append(asyncio.create_task(self._gloss_mcp(gid, it)))
+
+        if not use_llm:   # 生成なし(LOCAL・キーなし・AI オフ・予算超過): ノートの題名か見出しと一致する語だけ
+            for t, h in pre.items():
+                if title_rank(h, t) <= 1:
+                    add({"term": t, "reading": "", "field": "", "desc": h.snippet([t], 140),
+                         "source": f"{h.path}#{h.heading}" if h.heading else h.path, "llm": False})
+            r = None
+        else:
+            msgs = prompts.build_glossary_messages(text=text, vault=pre, known=sorted(self._gloss_seen)[-80:], n=gc.max_terms,
+                                                   level=gc.level, snippet_chars=gc.snippet_chars)
+            loop = asyncio.get_running_loop()
+            buf: list[str] = []
+            emitted = 0
+
+            def flush(final: bool = False) -> None:
+                nonlocal emitted
+                ls = "".join(buf).split("\n")
+                complete = ls if final else ls[:-1]
+                for line in complete[emitted:]:
+                    it = prompts.parse_glossary_line(line)
+                    if it and len(items) < gc.max_terms:
+                        add({**it, "llm": True})
+                emitted = len(complete)
+
+            def on_delta(d: str) -> None:
+                buf.append(d)
+                if "\n" in d:
+                    loop.call_soon_threadsafe(flush)
+
+            r = await asyncio.to_thread(llm.stream, self.target, msgs, role="main", timeout=cfg.llm.timeout_s,
+                                        max_tokens=gc.max_tokens, on_delta=on_delta,
+                                        should_stop=self._dig_stop.is_set)   # 停止のときの止め札(深掘りと共通)
+            flush(final=True)
+            self.ledger.record(r.cost_usd)
+        if mcp_tasks:
+            await asyncio.wait(mcp_tasks, timeout=gc.mcp_timeout_s + 0.5)
+        self.m.emit(gid, "glossary", trigger=kind, ok=r.ok if r else True, error=r.error if r else None,
+                    ms=r.ms_total if r else 0, ms_first_token=r.ms_first_token if r else None, model=(r.model if r else None),
+                    input_tokens=r.input_tokens if r else None, output_tokens=r.output_tokens if r else None,
+                    cost_usd=r.cost_usd if r else None, items=len(items), with_notes=sum(1 for it in items if it["notes"]),
+                    mcp=len(mcp_tasks))
+        if items or (r and not r.ok):
+            self.session.write_cue(gid, {"kind": "glossary", "trigger": kind, "ok": r.ok if r else True,
+                                         "error": r.error if r else None, "model": r.model if r else None, "items": items,
+                                         "ms_total": r.ms_total if r else 0, "cost_usd": r.cost_usd if r else None,
+                                         "at_ms": int(time.time() * 1000)})
+        self._ui("glossary_done", gid, r.ok if r else True, r.error if r else None, len(items), r.ms_total if r else 0)
+
+    async def _gloss_mcp(self, gid: str, it: dict) -> None:
+        try:
+            hs = await asyncio.wait_for(asyncio.to_thread(self.mcp_search, [it["term"]], self.cfg.glossary.notes_per_term),
+                                        timeout=self.cfg.glossary.mcp_timeout_s)
+        except Exception as e:  # noqa: BLE001 — 届かなければノートなしのまま(§5.4)
+            self.m.emit(gid, "glossary_mcp", ok=False, error=f"{type(e).__name__}: {e}"[:160], term=it["term"])
+            return
+        it["notes"] = [self._note(h, it["term"]) for h in (hs or []) if h.path]
+        if it["notes"]:
+            self._ui("glossary_notes", gid, it["term"], it["notes"])
+
+    # ---- 深掘り(FR-6d・2026-10-08): 回答タブの質問を Sonnet(少し深く)/ Opus(深く)で掘り下げる ----------------------
+    DIG_LABEL = {"mid": "少し深く", "deep": "深く"}
+
+    def _request_dig(self, rid: str, level: str) -> None:
+        label, src = self.DIG_LABEL.get(level), self._utts.get(rid)
+        if not label or not src:
+            self.ui.status("深掘りする質問が見つかりません")
+            return
+        key = (rid, level)
+        if key in self._digs:   # 冪等: 走っている間も済んだ後も重ねない
+            done = self._digs[key].done()
+            self.ui.status(f"この質問は「{label}」で{'掘り下げ済みです' if done else '掘り下げています'}")
+            return
+        if not self.llm_enabled:
+            self.ui.status("生成が止まっているため深掘りはできません(LOCAL・キーなし・AI オフ)")
+            return
+        if not self.ledger.allowed():
+            self.ui.status("月の予算を超えたため深掘りは止めています")
+            return
+        self.m.emit(rid, "dig_request", level=level)
+        self._digs[key] = asyncio.create_task(self._run_dig(rid, level, *src))
+
+    async def _dig_hits(self, did: str, level: str, u: Utterance, prev: list[str]) -> tuple[list, list[str]]:
+        """Vault から多めに引く: 索引(上位 k 件)+ MCP(つながっていれば・mcp_timeout_s で打ち切り)。重複は除く。"""
+        dc = self.cfg.dig
+        k = dc.top_k_deep if level == "deep" else dc.top_k_mid
+        last_other = next((p.split("] ", 1)[-1] for p in reversed(prev) if not p.startswith("[mic]")), "")
+        every = list(dict.fromkeys(query_terms(u.text) + query_terms(last_other)))
+        # 専門語らしい語(英字・3 字以上)だけで引く。一般語(移行・検討・運用)まで入れると OR 検索で的外れのノートが上に来た
+        # (2026-10-08 合成音声の通し)。専門語らしい語が無ければ従来どおり全部
+        terms = ([t for t in every if self._jargon_like(t)] or every)[:12]
+        t0 = time.perf_counter()
+        local = self.index.search(f"{u.text} {last_other}", k=k, terms=terms) if self.index and terms else []
+        local_ms = round((time.perf_counter() - t0) * 1000, 1)
+        mcp: list = []
+        mcp_ms = mcp_err = None
+        if self.mcp_search and terms:
+            t1 = time.perf_counter()
+            try:
+                mcp = await asyncio.wait_for(asyncio.to_thread(self.mcp_search, terms[:dc.mcp_terms], k),
+                                             timeout=dc.mcp_timeout_s) or []
+            except asyncio.TimeoutError:
+                mcp_err = "timeout"
+            except Exception as e:  # noqa: BLE001 — MCP が使えなくても索引だけで続ける(§5.4)
+                mcp_err = f"{type(e).__name__}: {e}"[:160]
+            mcp_ms = round((time.perf_counter() - t1) * 1000, 1)
+        seen = {h.path for h in local}
+        extra = [h for h in mcp if h.path not in seen and not seen.add(h.path)][:4]
+        self.m.emit(did, "dig_retrieve", ms=local_ms, ok=True, local=len(local), mcp=len(mcp), mcp_used=len(extra),
+                    mcp_ms=mcp_ms, mcp_error=mcp_err, terms=terms)
+        return list(local) + extra, terms
+
+    async def _run_dig(self, rid: str, level: str, u: Utterance, prev: list[str], summary: dict | None, _hits: list) -> None:
+        cfg, dc = self.cfg, self.cfg.dig
+        did = f"{rid}-{level}"
+        model = self.target.model_for(level)
+        hits, terms = await self._dig_hits(did, level, u, prev)
+        notes = [{"path": h.path, "heading": h.heading, "snippet": h.snippet(terms, 160), "source": h.source} for h in hits]
+        self.m.emit(did, "dig_start", q_rid=rid, level=level, model=model, hits=len(hits))
+        self._ui("dig_start", rid, level, model, notes)
+        transcript = self._plan_transcript(dc.deep_context_chars if level == "deep" else dc.mid_context_chars)
+        msgs = prompts.build_dig_messages(level=level, mode=cfg.mode, profile=cfg.profile, transcript=transcript,
+                                          utterance=u.text, intent=(summary or {}).get("intent"), hits=hits,
+                                          n_answers=dc.n_answers, n_evidence=dc.n_evidence, body_chars=dc.body_chars)
+        loop = asyncio.get_running_loop()
+        buf: list[str] = []
+        emitted = 0
+
+        def flush(final: bool = False) -> None:
+            nonlocal emitted
+            lines = "".join(buf).split("\n")
+            complete = lines if final else lines[:-1]
+            for line in complete[emitted:]:
+                line = line.strip()
+                if line and prompts.parse_dig_line(line):
+                    self._ui("dig_line", rid, level, line)
+            emitted = len(complete)
+
+        def on_delta(d: str) -> None:
+            buf.append(d)
+            if "\n" in d:
+                loop.call_soon_threadsafe(flush)
+
+        deep = level == "deep"
+        r = await asyncio.to_thread(
+            llm.stream, self.target, msgs, role=level, model=model, timeout=dc.timeout_s,
+            max_tokens=dc.deep_max_tokens if deep else dc.mid_max_tokens, effort=dc.deep_reasoning if deep else dc.mid_reasoning,
+            on_delta=on_delta, should_stop=self._dig_stop.is_set)
+        flush(final=True)
+        self.ledger.record(r.cost_usd)
+        parsed = prompts.parse_dig_lines(r.text) if r.text else prompts.parse_dig_lines("")
+        self.m.emit(did, "dig", q_rid=rid, level=level, ms=r.ms_total, ok=r.ok, error=r.error, rc=r.rc,
+                    detail=(r.detail or "")[:200] or None, model=r.model or model, provider=r.provider,
+                    warm=r.extra.get("warm"), ms_first_token=r.ms_first_token, input_tokens=r.input_tokens,
+                    output_tokens=r.output_tokens, cost_usd=r.cost_usd, answers=len(parsed["answers"]),
+                    evidence=len(parsed["evidence"]))
+        self.session.write_cue(rid, {"kind": "dig", "level": level, "model": r.model or model, "ok": r.ok, "error": r.error,
+                                     **parsed, "notes": notes, "ms_first_token": r.ms_first_token, "ms_total": r.ms_total,
+                                     "cost_usd": r.cost_usd, "at_ms": int(time.time() * 1000), "raw": r.text})
+        self._ui("dig_done", rid, level, r.ok, r.error, r.ms_first_token, r.ms_total, r.cost_usd)
+        if not r.ok and r.error != "cancelled":   # 失敗(通信・空の出力など)はもう一度押せる
+            self._digs.pop((rid, level), None)
 
     async def _generate(self, u: Utterance, msgs: list[dict], stop_flag: threading.Event,
                         prev: list[str], summary: dict, use_sel: bool, part: str) -> None:

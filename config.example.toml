@@ -1,7 +1,7 @@
 # Meeting Cue! の設定雛形。実体は ~/.meeting-cue/config.toml に置く(git 外)。
 # 鍵は ~/.secrets/meeting-cue.env に OPENROUTER_API_KEY=... の 1 行(このファイルには書かない)。
 
-vault_root = "~/ObsidianVault/vault"     # Obsidian Vault のルート(索引対象)
+vault_root = "~/ObsidianVault/vault"     # Obsidian Vault のルート(索引対象)。⚙ の「Obsidian」で選んだものが優先
 mode = "participant"                    # participant | presenter | audience
 privacy = "private"                     # private(クラウド可)| local(クラウド呼び出しなし)
 locale = "ja-JP"
@@ -14,8 +14,8 @@ profile = "例: IT 企業のエンジニア。担当分野(製品・技術)と�
 # stt_python = "~/.meeting-cue/stt-venv/Scripts/python.exe"   # STT ヘルパー専用の仮想環境(packaging/windows/setup.ps1 が作る)
 
 [llm]
-model = "anthropic/claude-sonnet-5"      # 既定(OpenRouter の model id)
-fast_model = "anthropic/claude-haiku-4.5"
+model = "anthropic/claude-haiku-5.5"     # 既定(OpenRouter の model id)。回答・質問タブ・用語(2026-10-08 から Haiku 5.5)
+fast_model = "anthropic/claude-haiku-5.5" # サマリ
 provider_order = ["Anthropic"]           # 2026-09-25 実測: AWS 経由だと初トークン 3.3s、Anthropic 直で 1.2s
 max_tokens = 1200
 monthly_budget_usd = 10.0                # 超えたらナレッジカードのみで続行(fail-closed)
@@ -60,12 +60,30 @@ chunk_chars = 800
 top_k = 5
 
 [planner]                      # 質問タブ(こちらから聞くべき質問の先回り)。相手からの質問への回答が常に優先
-auto = true                    # 話が進んだら自動で(Sonnet)。画面の「自動で考える」で切り替えられる
+auto = true                    # 話が進んだら自動で(Haiku 5.5)。画面の「自動で考える」で切り替えられる
 interval_s = 60                # 自動は最大 1 分に 1 回
 min_new_chars = 120            # 前回から会話がこれだけ進んだら
 cooldown_s = 10                # 回答の生成が終わってからこの秒数は自動で考えない
+mid_model = "anthropic/claude-sonnet-5.5"  # 「少し深く」(回答タブの深掘りも同じ)
+mid_reasoning = "low"                      # 思考の量(Sonnet 5.5 は思考を切れない)
 deep_model = "anthropic/claude-opus-5.5"   # 「深く考える」
 n = 5                          # 候補の本数(Jev の採点で上位 3 件に ★)
+
+[dig]                          # 深掘り(回答タブの「少し深く = Sonnet 5.5」「深く = Opus 5.5」)
+top_k_mid = 8                  # Vault から引く件数(回答の 5 件より多く)
+top_k_deep = 12
+body_chars = 1200              # 1 件あたりの本文
+mid_reasoning = "low"          # 思考の量(low / medium / high)
+deep_reasoning = "medium"
+mcp_timeout_s = 4.5            # Obsidian の MCP 検索を待つ上限(過ぎたら索引だけで続ける)。簡易検索は 1 語 2.4〜3.5 s
+mcp_terms = 1                  # MCP で引く語の数(1 語ずつ順に引くので、増やすとその分待つ)
+
+[glossary]                     # 用語タブ(会話に出た専門用語に説明と自分のノートを付ける・Haiku 5.5)
+auto = true                    # 画面の「自動で拾う」で切り替えられる
+interval_s = 8                 # 自動は最短この間隔
+min_chars = 40                 # 前回から会話がこれだけ進んだら
+max_terms = 4                  # 1 回に拾う語の上限
+# level = "高校以上〜大学で習う語・業界の専門用語・技術用語・略語"   # 拾う語の水準
 
 [segmenter]
 pause_ms = 500                 # partial 更新が止まってから finalize を送るまで(通常)

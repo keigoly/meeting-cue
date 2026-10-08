@@ -20,6 +20,10 @@ KEY_PAGES = {                       # 「キーを取得」で開く各社のペ
     "anthropic": "https://console.anthropic.com/settings/keys",
     "openai": "https://platform.openai.com/api-keys",
     "drive": "https://www.google.com/drive/download/",
+    # Obsidian 連携(FR-5b・2026-10-08): 本体の入手先・Local REST API プラグイン(Obsidian のプラグイン画面を開く)・uv
+    "obsidian_app": "https://obsidian.md/download",
+    "obsidian_rest": "obsidian://show-plugin?id=obsidian-local-rest-api",
+    "uv": "https://docs.astral.sh/uv/getting-started/installation/",
 }
 
 

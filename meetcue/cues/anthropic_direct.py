@@ -3,8 +3,8 @@
 公開仕様どおりの HTTP + SSE(POST /v1/messages・x-api-key・anthropic-version: 2023-06-01・"stream": true)。
 イベント: message_start(usage.input_tokens)→ content_block_delta(delta.type = text_delta の text だけを使う。
 thinking の差分は捨てる)→ message_delta(usage.output_tokens・stop_reason)→ message_stop。途中の error イベントも見る。
-- 思考: 回答・質問タブ(Sonnet 5)は {"type": "disabled"} で初トークンを速く。深く考える(Opus 5.5)は思考を切れない
-  ので thinking を送らず output_config.effort で量を決める。Sonnet 5 / Opus 5.5 は temperature を受け付けないので送らない。
+- 思考(役ごとの決め方は cues/llm.py): 思考を切れるモデル(Sonnet 5 まで)の回答は {"type": "disabled"}。Haiku 5.5 / Sonnet 5.5 /
+  Opus 5.5 は thinking を送らず output_config.effort で量を決める。temperature は送らない(Haiku 5.5 は既定以外が 400)。
 - 料金は応答に含まれない(呼び出し側 llm.stream が価格表から計算する)。
 - raise しない: 失敗は openrouter.StreamResult(ok=False, error=…) で返す(OpenRouter と同じ形)。
 """

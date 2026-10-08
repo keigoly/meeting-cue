@@ -163,27 +163,58 @@ def test_llm_dispatch_roles_and_cost(monkeypatch):
     monkeypatch.setattr(openrouter, "stream_chat", fake_or)
 
     ta = llm.target_for(cfg, "anthropic", "k", {})
-    assert (ta.model, ta.fast_model, ta.deep_model) == ("claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5-5")
+    assert (ta.model, ta.fast_model, ta.mid_model, ta.deep_model) == ("claude-haiku-5-5", "claude-haiku-5-5",
+                                                                      "claude-sonnet-5-5", "claude-opus-5-5")
     r = llm.stream(ta, [], role="main")
-    assert r.cost_usd == pytest.approx(2.0 + 1.0)                             # Sonnet 5: $2/M 入力 + $10/M 出力 × 0.1M
+    assert r.cost_usd == pytest.approx(0.10 + 0.05)                           # Haiku 5.5: $0.10/M 入力 + $0.50/M 出力 × 0.1M
     llm.stream(ta, [], role="fast")
+    llm.stream(ta, [], role="mid", effort="low", max_tokens=3000)
     llm.stream(ta, [], role="deep", effort="medium", max_tokens=4000)
-    assert seen[:3] == [("anthropic", "claude-sonnet-5", {"type": "disabled"}, None, 1200),   # 回答: 思考を切る
-                        ("anthropic", "claude-haiku-4-5", None, None, 1200),                  # サマリ: 指定しない
+    assert seen[:4] == [("anthropic", "claude-haiku-5-5", None, "low", 1200),                 # 回答: 思考は切れない → effort low
+                        ("anthropic", "claude-haiku-5-5", None, "low", 1200),                 # サマリも同じ
+                        ("anthropic", "claude-sonnet-5-5", None, "low", 3000),                # 少し深く: effort だけ
                         ("anthropic", "claude-opus-5-5", None, "medium", 4000)]               # 深く: effort だけ
+    old = llm.Target("anthropic", "k", "claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5-5", fast_effort="low")
+    llm.stream(old, [], role="main")
+    llm.stream(old, [], role="fast")
+    assert seen[4:6] == [("anthropic", "claude-sonnet-5", {"type": "disabled"}, None, 1200),  # 前のモデルの設定は従来どおり
+                         ("anthropic", "claude-haiku-4-5", None, None, 1200)]                 # Haiku 4.5 は effort を受け付けない
+    seen[:] = seen[:4]
 
     to = llm.target_for(cfg, "openai", "k", {"openai_model": "gpt-x", "openai_price_in": 1.5, "openai_price_out": 6})
     r = llm.stream(to, [], role="main", max_tokens=700)
-    assert r.cost_usd == pytest.approx(3.0) and seen[3] == ("openai", "gpt-x", None, 4000)   # 推論の分の余裕
+    assert r.cost_usd == pytest.approx(3.0) and seen[4] == ("openai", "gpt-x", None, 4000)   # 推論の分の余裕
     llm.stream(to, [], role="deep", effort="high")
-    assert seen[4] == ("openai", "gpt-x", "high", 4000)
+    assert seen[5] == ("openai", "gpt-x", "high", 4000)
     free = llm.target_for(cfg, "openai", "k", {"openai_model": "gpt-x"})                       # 価格が未入力
     assert llm.stream(free, [], role="main").cost_usd is None
 
     tr = llm.target_for(cfg, "openrouter", "k", {})
     assert llm.stream(tr, [], role="main").cost_usd == 0.0123                                 # OpenRouter は実額のまま
+    assert seen[-1] == ("openrouter", "anthropic/claude-haiku-5.5", None)                     # 既定は Haiku 5.5・思考なし
+    llm.stream(tr, [], role="mid", effort="low")
+    assert seen[-1] == ("openrouter", "anthropic/claude-sonnet-5.5", {"effort": "low"})
     llm.stream(tr, [], role="deep", effort="medium")
     assert seen[-1] == ("openrouter", cfg.planner.deep_model, {"effort": "medium"})
+
+
+def test_fast_hint_only_for_adaptive_fast_roles(monkeypatch):
+    """Haiku 5.5 を速い役(main / fast)で使うときだけ「すぐ書き始める」一文を system に足す(元の messages は変えない)。"""
+    got = []
+    monkeypatch.setattr(anthropic_direct, "stream_chat",
+                        lambda messages, **kw: got.append(messages) or openrouter.StreamResult(True, text="ok", model=kw["model"]))
+    msgs = [{"role": "system", "content": "S"}, {"role": "user", "content": "U"}]
+    ta = llm.target_for(Config(), "anthropic", "k", {})
+    llm.stream(ta, msgs, role="main")
+    llm.stream(ta, msgs, role="deep", effort="medium")
+    llm.stream(llm.Target("anthropic", "k", "claude-sonnet-5", fast_effort="low"), msgs, role="main")
+    assert got[0][0]["content"] == "S\n" + llm.FAST_HINT and got[0][1] == msgs[1]
+    assert got[1][0]["content"] == "S" and got[2][0]["content"] == "S"                          # 深掘り・思考を切れるモデルは足さない
+    assert msgs[0]["content"] == "S"
+    assert llm.with_fast_hint([{"role": "user", "content": "U"}])[0] == {"role": "system", "content": llm.FAST_HINT}
+    assert llm.thinking_off_ok("claude-sonnet-5") and not llm.thinking_off_ok("claude-sonnet-5-5")
+    assert not llm.thinking_off_ok("claude-haiku-5-5") and llm.supports_effort("claude-haiku-5-5")
+    assert not llm.supports_effort("claude-haiku-4-5")
 
 
 def test_estimate_cost_prefix_match():

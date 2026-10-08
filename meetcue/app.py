@@ -7,6 +7,9 @@
 - 一覧の右クリック(2026-09-26): POST /api/sessions/<id>/export {dest?}(dest が無ければ保存先を選ぶダイアログ)/
   POST /api/sessions/<id>/drive {account?}(Google Drive へ移す・LOCAL は断る)/ POST /api/sessions/<id>/trash(ゴミ箱へ)/
   GET /api/storage(Google Drive の有無)。操作ごとに端末ログへ所要と成否を出し、全画面へ sessions_changed を配る。
+- Obsidian(FR-5b・2026-10-08): GET /api/obsidian(Vault・保管庫の一覧・索引・MCP の状態)/ POST /api/obsidian/choose
+  (フォルダを選ぶ)/ POST /api/obsidian/index {full?}(裏で索引を作る)/ POST /api/obsidian/mcp/check(MCP の接続確認)/
+  POST /api/obsidian/open {path}(ノートを Obsidian で開く)。録音には MCP の検索(pipeline.mcp_search)を渡す。
 Ctrl-C(SIGINT)と SIGTERM は録音を正規に止めてから終了する。
 """
 from __future__ import annotations
@@ -14,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import threading
 import re
 import os
 import signal
@@ -29,9 +33,11 @@ from .config import Config, default_port
 from .metrics import Metrics
 from . import providers, secrets
 from .cues import claude_cli, llm, openai_direct
+from .knowledge import mcp, obsidian
 from .pipeline import Pipeline, Source, helper_hint
 from .replacements import Replacer
 from .secrets import openrouter_key
+from .stall import LoopStallWatch
 from .session import Session
 from .ui.terminal import TerminalUI
 from .ui.web import MultiUI, WebUI
@@ -46,14 +52,20 @@ DEFAULT_APP = {"provider": "openrouter", "generate": True, "jev": True, "drive":
                # OpenAI 直接(第 2 段): モデルは利用者がキーのモデル一覧から選ぶ・価格(1M トークンあたり USD)は月予算の台帳用
                "openai_model": "", "openai_price_in": 0.0, "openai_price_out": 0.0,
                # 外観(2026-09-27 keigoly様: ダークモードも): auto = macOS に合わせる / light / dark
-               "theme": "auto"}
+               "theme": "auto",
+               # Obsidian(FR-5b・2026-10-08): Vault(空 = config.toml の vault_root)と MCP(既定オフ・既定の型は mcp-obsidian)
+               "vault_root": "", "obsidian_mcp": False, "mcp_kind": "mcp-obsidian", "mcp_command": "", "mcp_url": "",
+               "mcp_host": "127.0.0.1", "mcp_port": 27124, "mcp_tool": ""}
 THEMES = ("auto", "light", "dark")
+MCP_KINDS = ("mcp-obsidian", "stdio", "http")
 
 
 def _valid(dv, v) -> bool:
     """ui.json の値の型を既定値に合わせて検める(価格は整数も可・負は不可・bool は数に数えない)。"""
     if isinstance(dv, float):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0
+    if isinstance(dv, int) and not isinstance(dv, bool):
+        return isinstance(v, int) and not isinstance(v, bool)
     return isinstance(v, type(dv))
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 REPO = Path(__file__).resolve().parents[1]
@@ -121,6 +133,12 @@ class App:
         self._tr_cache: tuple = (0.0, None, "")   # (時刻, Target, 理由)。キーチェーンを字幕 1 行ごとに読まない
         self._boot_commit = ""   # アップデートを確認: 動いている版(run の開始で記録)
         self.replacer = Replacer(cfg.app_dir / "replacements.txt")   # 置き換え辞書(⚙ で編集。録音・字幕は同じファイルを読む)
+        # Obsidian(FR-5b): 索引を裏で作る状態と、MCP の検索(つなぎっぱなし・設定やキーが変わったら作り直す)
+        self._idx_lock = threading.Lock()
+        self._idx_state: dict = {"building": False, "last": None}
+        self._vs: mcp.VaultSearch | None = None
+        self._vs_key: str = ""
+        self._mcp_last: dict | None = None
 
     # ---- 起動・終了 ----------------------------------------------------------------
     async def run(self) -> None:
@@ -140,9 +158,11 @@ class App:
         if self.window:
             await self._spawn_window()
         watchdog = asyncio.create_task(self._caption_watchdog())
+        stall = asyncio.create_task(LoopStallWatch(on_stall=self._loop_stalled).run())
         await self._shutdown.wait()
         self.term.status("終了します")
         watchdog.cancel()
+        stall.cancel()
         async with self._caption_lock:
             await self._caption.stop()
         if self.pipeline:
@@ -155,6 +175,8 @@ class App:
         await self._stop_window()
         if self._cli_pool:
             self._cli_pool.close()
+        if self._vs:
+            self._vs.close()
         self.web.stop()
 
     async def _spawn_window(self) -> None:
@@ -226,7 +248,7 @@ class App:
             asyncio.ensure_future(self._window_cmd("top " + ("on" if body.get("on") else "off")))
             self.web.set_state(top=bool(body.get("on")))
         elif self.pipeline:
-            self.pipeline.action(name)
+            self.pipeline.action(name, body)
         else:
             self.web.status("録音していません")
 
@@ -245,8 +267,9 @@ class App:
             key = claude_cli.MARKER if cli else None
             pool = self._cli_pool_get(cli) if cli else None
             target = llm.target_for(cfg, "claude-cli", key, {**st, "_pool": pool})
-            if pool:   # 字幕の翻訳もするなら 1 つ多く温める(回答候補の分を取らない)
-                pool.set_warm({target.model: max(0, cfg.llm.claude_cli_warm) + (1 if self._translator.lang else 0)})
+            if pool:   # 字幕の翻訳・用語タブもするなら 1 つずつ多く温める(回答候補の分を取らない)。鍵は (モデル, effort, 速い役か)
+                pool.set_warm({llm.warm_key(target): max(0, cfg.llm.claude_cli_warm) + (1 if self._translator.lang else 0)
+                               + (1 if cfg.glossary.enabled else 0)})
             elif generate and not local:
                 self.web.status("Claude Code(claude)が見つからないため、回答候補とサマリは作りません")
         else:
@@ -268,6 +291,7 @@ class App:
         p = Pipeline(cfg, session, ui, self.sources, api_key=key, llm_enabled=generate, jev_enabled=jev_on,
                      model=self.model, target=target if st["provider"] != "openrouter" else None, jev_api_key=jev_key)
         p.overlay = False   # 画面はアプリのウィンドウ
+        p.mcp_search = self._mcp_search_fn(privacy)   # Obsidian の MCP(FR-5b)。LOCAL では stdio / localhost だけ
         self.session, self.pipeline = session, p
         self.web.reset_history()
         self.web.set_state(recording=True, session=session.dir.name, title=title or library.DEFAULT_TITLE,
@@ -330,14 +354,21 @@ class App:
                 await self._caption.stop()
                 if want:
                     await self._caption.start(set(want[0]), want[1])
-            if not busy:   # 録音していない間: 翻訳するときだけ Sonnet を 1 つ温める(オンにした時点で。1 行目から待たせない)
+            if not busy:   # 録音していない間: 翻訳するときだけ回答と同じモデル(Haiku 5.5)を 1 つ温める(オンにした時点で。1 行目から待たせない)
                 st = self.ui_settings()
                 use = bool(self._translator.lang and st["provider"] == "claude-cli" and st["generate"] and self.llm_enabled)
                 cli = self._claude_cli() if use and self._cli_pool is None else None
                 if cli:
                     self._cli_pool_get(cli)
                 if self._cli_pool:
-                    self._cli_pool.set_warm({self.cfg.anthropic.model: 1} if use else {})
+                    key = llm.warm_key(llm.target_for(self.cfg, "claude-cli", claude_cli.MARKER, st))
+                    self._cli_pool.set_warm({key: 1} if use else {})
+
+    def _loop_stalled(self, s: float) -> None:
+        """本体が止まっていた(stall.py)。20 s の時点の全スレッドの呼び出し位置は、このログの上の Timeout の節にある。"""
+        self.term.error(f"本体が {s:.0f} s 止まっていました({time.strftime('%H:%M:%S')} に再開。止まった時点の呼び出し位置はこのログの上)")
+        if self.pipeline:
+            self.pipeline.m.emit("APP", "loop_stall", ms=round(s * 1000))
 
     async def _caption_watchdog(self) -> None:
         while True:
@@ -446,6 +477,8 @@ class App:
             out["provider"] = DEFAULT_APP["provider"]
         if out["theme"] not in THEMES:
             out["theme"] = DEFAULT_APP["theme"]
+        if out["mcp_kind"] not in MCP_KINDS:
+            out["mcp_kind"] = DEFAULT_APP["mcp_kind"]
         return out
 
     def _ready(self) -> set[str]:
@@ -468,8 +501,11 @@ class App:
         return {**cur, "keys": keys, "keychain": secrets.keychain_supported(), "drive_accounts": drive,
                 "providers_ready": sorted(self._ready()),
                 "subscription_cli": {"enabled": self.cfg.llm.subscription_cli, "found": bool(self._claude_cli())},
-                "anthropic_models": {"main": a.model, "fast": a.fast_model, "deep": a.deep_model},
-                "need_onboarding": not cur["onboarded"] and not any(v["set"] for v in keys.values())}
+                "anthropic_models": {"main": a.model, "fast": a.fast_model, "mid": a.mid_model, "deep": a.deep_model},
+                "openrouter_models": {"main": self.cfg.llm.model, "fast": self.cfg.llm.fast_model,
+                                      "mid": self.cfg.planner.mid_model, "deep": self.cfg.planner.deep_model},
+                "obsidian": self._obsidian_view(),
+                "need_onboarding": not cur["onboarded"] and not any(v["set"] for p, v in keys.items() if p != "obsidian")}
 
     def save_ui_settings(self, body: dict) -> tuple[int, object]:
         body = body or {}
@@ -486,6 +522,12 @@ class App:
             return 400, {"error": "接続先が正しくありません"}
         if "theme" in body and body["theme"] not in THEMES:
             return 400, {"error": "外観は auto / light / dark のどれかです"}
+        if "vault_root" in body and body["vault_root"] and not Path(str(body["vault_root"])).expanduser().is_dir():
+            return 400, {"error": "Vault のフォルダが見つかりません"}
+        if "mcp_kind" in body and body["mcp_kind"] not in MCP_KINDS:
+            return 400, {"error": "MCP の型が正しくありません"}
+        if "mcp_port" in body and not 1 <= int(body["mcp_port"]) <= 65535:
+            return 400, {"error": "ポートは 1〜65535 です"}
         cur = self.ui_settings()
         cur["colors"] |= {k: str(v).lower() for k, v in colors.items()}
         if "nagi" in body:
@@ -505,6 +547,8 @@ class App:
         if prov not in secrets.PROVIDERS:
             return 400, {"error": "unknown provider"}
         t0 = time.monotonic()
+        if op == "check" and prov == "obsidian":   # Local REST API のキーは MCP の接続確認で確かめる
+            return self._mcp_check()
         if op == "check":
             res = providers.check_key(prov, secrets.api_key(prov)[0])
             self.term.status(f"key_check provider={prov} ok={res['ok']} status={res['status']} ms={res['ms']}")
@@ -544,6 +588,113 @@ class App:
             subprocess.run(["open", url], check=False)
         return 200, {"ok": True}
 
+    # ---- Obsidian(FR-5b・2026-10-08): Vault・索引・MCP・ノートを開く ---------------------------------------------
+    def vault_root(self) -> Path:
+        return obsidian.effective_vault_root(self.cfg)
+
+    def _obsidian_view(self) -> dict:
+        """画面へ渡す Obsidian の状態(キーの中身は出さない)。"""
+        st = self.ui_settings()
+        root = self.vault_root()
+        idx: dict = {"exists": self.cfg.index_db.exists(), **self._idx_state}
+        if idx["exists"]:
+            try:
+                from .knowledge.index import VaultIndex
+                v = VaultIndex(self.cfg.index_db)
+                idx.update(v.stats())
+                v.close()
+            except Exception:  # noqa: BLE001 — 作っている途中などで読めなくても画面は出す
+                pass
+        meta = obsidian.index_meta(self.cfg)
+        idx.update(built_ms=meta.get("built_ms"), root=meta.get("root"), include=meta.get("include"))
+        key, src = secrets.api_key("obsidian")
+        spec = mcp.build_spec(st, key)
+        return {"vault_root": str(root), "vault_exists": root.is_dir(), "vault_from": "settings" if st["vault_root"] else "config",
+                "vaults": obsidian.detect_vaults(), "index": idx,
+                "mcp": {"enabled": st["obsidian_mcp"], "kind": st["mcp_kind"], "ready": not spec.get("error"),
+                        "error": spec.get("error"), "uvx": bool(mcp.find_uvx()), "key": {"set": bool(key), "source": src},
+                        "last": self._mcp_last}}
+
+    def _vault_search(self) -> mcp.VaultSearch | None:
+        """設定が MCP オンなら共有の VaultSearch(設定かキーが変わっていたら作り直す)。"""
+        st = self.ui_settings()
+        if not st["obsidian_mcp"]:
+            return None
+        key = secrets.api_key("obsidian")[0]
+        sig = json.dumps([st[k] for k in ("mcp_kind", "mcp_command", "mcp_url", "mcp_host", "mcp_port", "mcp_tool")]
+                         + [hash(key) if key else None])
+        if self._vs is None or sig != self._vs_key:
+            if self._vs:
+                self._vs.close()
+            self._vs, self._vs_key = mcp.VaultSearch(mcp.build_spec(st, key), prefer_tool=st["mcp_tool"]), sig
+        return self._vs
+
+    def _mcp_search_fn(self, privacy: str):
+        """録音に渡す検索(語のリスト, 件数)→ [Hit]。オフ・設定不足・LOCAL で外の URL なら None。裏で先に起動しておく。"""
+        vs = self._vault_search()
+        if vs is None or vs.spec.get("error"):
+            return None
+        if privacy == "local" and not mcp.is_local(vs.spec):
+            self.web.status("LOCAL のため、外の MCP サーバーは使いません(Obsidian の検索は索引だけ)")
+            return None
+        threading.Thread(target=self._mcp_warm, args=(vs,), name="mcp-warm", daemon=True).start()
+        return lambda terms, k: vs.search(terms, k)
+
+    def _mcp_warm(self, vs: mcp.VaultSearch) -> None:
+        t0 = time.monotonic()
+        try:
+            vs.warm()
+            self.term.status(f"mcp_warm ok ms={round((time.monotonic() - t0) * 1000)}")
+        except mcp.MCPError as e:
+            self.term.error(f"mcp_warm ok=False ms={round((time.monotonic() - t0) * 1000)} error={mcp.friendly(str(e))[:160]}")
+
+    def _mcp_check(self) -> tuple[int, object]:
+        st = self.ui_settings()
+        vs = mcp.VaultSearch(mcp.build_spec(st, secrets.api_key("obsidian")[0]), prefer_tool=st["mcp_tool"])
+        try:
+            res = vs.check()
+        finally:
+            vs.close()
+        self._mcp_last = {k: res.get(k) for k in ("ok", "connected", "server", "version", "tools", "search_tool", "message", "ms")}
+        self.term.status(f"mcp_check kind={st['mcp_kind']} ok={res['ok']} connected={res.get('connected')} ms={res['ms']}")
+        self.web.push({"type": "obsidian", **self._obsidian_view()})
+        return 200, res
+
+    def _index_start(self, full: bool) -> tuple[int, object]:
+        root = self.vault_root()
+        if not root.is_dir():
+            return 409, {"error": f"Vault が見つかりません: {root}"}
+        with self._idx_lock:
+            if self._idx_state["building"]:
+                return 409, {"error": "索引を作っています"}
+            self._idx_state.update(building=True, started_ms=int(time.time() * 1000))
+        threading.Thread(target=self._index_build, args=(root, full), name="index-build", daemon=True).start()
+        self.web.push({"type": "obsidian", **self._obsidian_view()})
+        return 200, {"ok": True, "started": True}
+
+    def _index_build(self, root: Path, full: bool) -> None:
+        t0 = time.monotonic()
+        try:
+            res = {"ok": True, **obsidian.build_index(self.cfg, root, full=full)}
+        except Exception as e:  # noqa: BLE001 — 失敗は画面に返し、アプリは止めない
+            res = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+        res["ms"] = round((time.monotonic() - t0) * 1000)
+        with self._idx_lock:
+            self._idx_state.update(building=False, last=res)
+        self.term.status(f"index_build ok={res['ok']} ms={res['ms']} files={res.get('files')} chunks={res.get('chunks')} "
+                         f"added={res.get('added')} updated={res.get('updated')} removed={res.get('removed')} full={res.get('full')}")
+        self.web.push({"type": "obsidian", **self._obsidian_view()})
+
+    def _choose_vault(self) -> tuple[int, object]:
+        d = self._choose_folder("Obsidian の Vault(保管庫)のフォルダを選んでください", home_default=True)
+        if d is None:
+            return 200, {"ok": False, "cancelled": True}
+        return self.save_ui_settings({"vault_root": str(d)})
+
+    def _open_note(self, body: dict) -> tuple[int, object]:
+        ok, msg = obsidian.open_note(self.vault_root(), str(body.get("path") or ""))
+        return (200, {"ok": True, "message": msg}) if ok else (400, {"error": msg})
+
     # ---- 記録の置き場(Mac + Google Drive)と右クリックの操作 -------------------------------------
     def _drive_accounts(self) -> list[dict]:
         return library.drive_accounts()
@@ -551,22 +702,22 @@ class App:
     def _roots(self) -> list:
         return [self.cfg.sessions_root, *(a["root"] for a in self._drive_accounts())]
 
-    def _choose_folder(self) -> Path | None:
-        """保存先のフォルダを選ぶ(osascript の choose folder・アプリでもブラウザでも出る)。キャンセルは None。
+    def _choose_folder(self, prompt: str = "録音を書き出す場所を選んでください", home_default: bool = False) -> Path | None:
+        """フォルダを選ぶ(osascript の choose folder・アプリでもブラウザでも出る)。キャンセルは None。
         Windows は PowerShell の FolderBrowserDialog(手前に出すため TopMost の親を付ける)。"""
         if sys.platform == "win32":
             ps = ("Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding = [Text.Encoding]::UTF8; "
                   "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                  "$d.Description = '録音を書き出す場所を選んでください'; "
-                  "$d.SelectedPath = Join-Path $env:USERPROFILE 'Downloads'; "
+                  f"$d.Description = '{prompt}'; "
+                  + ("$d.SelectedPath = $env:USERPROFILE; " if home_default else "$d.SelectedPath = Join-Path $env:USERPROFILE 'Downloads'; ") +
                   "$o = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}; "
                   "if ($d.ShowDialog($o) -eq 'OK') { $d.SelectedPath }")
             r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, timeout=600)
             out = r.stdout.decode("utf-8", "replace").strip()
             return Path(out) if r.returncode == 0 and out else None
         script =('tell me to activate\n'
-                  'POSIX path of (choose folder with prompt "録音を書き出す場所を選んでください" '
-                  'default location (path to downloads folder))')
+                  f'POSIX path of (choose folder with prompt "{prompt}" '
+                  f'default location (path to {"home folder" if home_default else "downloads folder"}))')
         r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=600)
         return Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
 
@@ -627,6 +778,18 @@ class App:
             return self._open_url(body or {})
         if method == "POST" and parts == ["api", "models"]:
             return self._list_models(body or {})
+        if parts[:2] == ["api", "obsidian"]:   # Obsidian(FR-5b)
+            if method == "GET" and len(parts) == 2:
+                return 200, self._obsidian_view()
+            if method == "POST" and parts[2:] == ["open"]:
+                return self._open_note(body or {})
+            if method == "POST" and parts[2:] == ["choose"]:
+                return self._choose_vault()
+            if method == "POST" and parts[2:] == ["index"]:
+                return self._index_start(bool((body or {}).get("full")))
+            if method == "POST" and parts[2:] == ["mcp", "check"]:
+                return self._mcp_check()
+            return None
         if parts == ["api", "replacements"]:   # 置き換え辞書(⚙)。中身は個人の固有名詞なので ~/.meeting-cue に置く
             if method == "GET":
                 return 200, self.replacer.view()
