@@ -171,6 +171,10 @@
   .badge.rec { background: var(--rec-bg); color: var(--rec-text); }
   .badge.local { background: var(--star); color: #3a2a00; }
   .badge.paused { background: var(--track); color: var(--fg); }
+  /* 会議の文字起こしを Soniox で(FR-2b・2026-10-18): 音声を外へ送っていることが見て分かるように */
+  .badge.soniox { background: color-mix(in srgb, var(--other) 20%, var(--panel)); color: color-mix(in srgb, var(--other) 62%, var(--fg));
+                  border: 1px solid color-mix(in srgb, var(--other) 45%, transparent); cursor: default; }
+  .badge.soniox.fb { background: var(--track); color: var(--dim); border-color: var(--line-hi); }
   #ops { position: relative; }
   #opsmenu { position: absolute; right: 0; top: 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
              padding: 6px; display: none; z-index: 5; min-width: 230px; box-shadow: 0 14px 36px rgba(var(--sh),0.18); }
@@ -316,6 +320,8 @@
   .seg button { flex: 1; border: none; background: none; padding: 6px; border-radius: 9px; color: var(--dim); font-weight: 700; }
   .seg button:hover { color: var(--fg); }
   .seg button.sel { background: var(--panel); color: var(--accent-text); box-shadow: 0 1px 4px rgba(var(--sh),0.12); }
+  .seg button:disabled { opacity: .45; cursor: not-allowed; }
+  .seg button:disabled:hover { color: var(--dim); }
   .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
   .check input { accent-color: var(--accent); }
   .dlgbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
@@ -373,11 +379,99 @@
   .obsstat .ok { color: var(--accent-text); font-weight: 700; } .obsstat .ng { color: var(--rec-text); font-weight: 700; }
   #obs-mcp-box { margin-left: 22px; }
   .dlg input[type=number], .dlg input[list] { background: var(--panel-hi); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px 8px; font: inherit; }
+  /* 音声入力(FR-14b・2026-10-19 keigoly様「キーバインドの設定を追加」「それ以外の機能も全て取り込む」): Aqua Voice の設定の
+     画面に寄せる。左に項目(設定・辞書・置換・カスタム指示・履歴・ネットワーク・ステータス)、右に中身 */
+  #dictbtn.rec { color: var(--rec-text); }
+  #dictdlg .box.dict { width: min(940px, 94vw); height: min(780px, 90vh); padding: 0; display: grid; grid-template-columns: 200px 1fr; overflow: hidden; }
+  .dnav { background: var(--side); border-right: 1px solid var(--line); padding: 18px 10px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .dnav h2 { font-size: 16px; margin: 0 10px 12px; }
+  .dnav button { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: 10px; font-weight: 700; color: var(--dim); }
+  .dnav button svg { width: 17px; height: 17px; flex: none; }
+  .dnav button:hover { background: rgba(var(--glass),0.55); color: var(--fg); }
+  .dnav button.sel { background: var(--panel); color: var(--fg); box-shadow: var(--shadow); }
+  .dnav .sp { flex: 1; }
+  .dnav .dstate { font-size: 11.5px; color: var(--dim); padding: 8px 10px; line-height: 1.6; }
+  .dnav .dstate b { display: block; color: var(--fg); }
+  .dnav .dstate.on b { color: var(--accent-text); }
+  .dmain { overflow-y: auto; padding: 22px 26px 28px; min-width: 0; }
+  .dpage { display: none; } .dpage.sel { display: block; }
+  .dhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .dhead h3 { margin: 0; font-size: 19px; }
+  .dhead .sp { flex: 1; }
+  .dsec { color: var(--faint); font-size: 12px; font-weight: 700; letter-spacing: .06em; margin: 24px 4px 8px; display: flex; align-items: center; gap: 8px; }
+  .dsec::after { content: ""; flex: 1; height: 1px; background: var(--line-hi); }
+  .dcard { background: var(--panel-hi); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .drow { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .drow:first-child { border-top: none; }
+  .drow > svg { width: 18px; height: 18px; color: var(--dim); }
+  .drow .t { font-weight: 700; font-size: 13.5px; }
+  .drow .d { color: var(--dim); font-size: 12px; margin-top: 2px; line-height: 1.55; }
+  .drow .ctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 380px; }
+  .kchip { font: 600 13px/1 -apple-system, "Hiragino Sans", system-ui, sans-serif; padding: 7px 10px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line-hi);
+           box-shadow: 0 1px 0 var(--line-hi); white-space: nowrap; cursor: pointer; }
+  .kchip.cap { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); color: var(--accent-text); cursor: default; }
+  .kchip.ng { border-color: var(--rec); color: var(--rec-text); }
+  .kchip.none { color: var(--faint); font-weight: 400; cursor: default; box-shadow: none; }
+  .ibtn { width: 30px; height: 30px; border-radius: 9px; border: none; background: transparent; color: var(--dim); display: grid; place-items: center; padding: 0; }
+  .ibtn svg { width: 17px; height: 17px; }
+  .ibtn:hover { background: var(--track); color: var(--fg); }
+  .switch { position: relative; width: 42px; height: 24px; flex: none; display: inline-block; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch span { position: absolute; inset: 0; border-radius: 12px; background: var(--track); border: 1px solid var(--line-hi); transition: background .15s; cursor: pointer; }
+  .switch span::after { content: ""; position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 9px; background: #fff;
+                        box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .15s; }
+  .switch input:checked + span { background: var(--accent); border-color: transparent; }
+  .switch input:checked + span::after { transform: translateX(18px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .dreset { background: none; border: none; color: var(--faint); font-size: 12px; margin: 8px 8px 0; padding: 2px; }
+  .dreset:hover { color: var(--fg); text-decoration: underline; }
+  .dradio { display: grid; grid-template-columns: minmax(0, 1fr) 22px; gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+  .dradio:first-child { border-top: none; }
+  .dradio:hover { background: rgba(var(--glass),0.35); }
+  .dradio .t { font-weight: 700; font-size: 13.5px; } .dradio .d { color: var(--dim); font-size: 12px; margin-top: 2px; line-height: 1.55; }
+  .dradio .rd { width: 18px; height: 18px; border-radius: 9px; border: 2px solid var(--line-hi); }
+  .dradio.sel .rd { border: 6px solid var(--accent); }
+  .dtag { color: var(--accent-text); background: var(--accent-bg); border-radius: 6px; padding: 0 6px; font-size: 10.5px; font-weight: 800; margin-left: 6px; vertical-align: 1px; }
+  .dmain select, .dmain input[type=text], .dmain input[type=search], .dmain textarea { background: var(--panel); color: var(--fg); border: 1px solid var(--line-hi); border-radius: 9px; padding: 6px 8px; font: inherit; }
+  .dmain textarea { width: 100%; font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
+  .dmain textarea.prose { font: 13px/1.65 -apple-system, "Hiragino Sans", system-ui, sans-serif; }
+  .dnote { color: var(--faint); font-size: 11.5px; line-height: 1.7; margin: 8px 4px; }
+  .dwarn { color: var(--warn); font-size: 12px; line-height: 1.6; margin: 8px 4px; }
+  .dpill { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 8px; background: var(--track); color: var(--dim); white-space: nowrap; }
+  .dpill.on { background: var(--accent-bg); color: var(--accent-text); }
+  .dpill.rec { background: var(--rec-bg); color: var(--rec-text); }
+  .dapps { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .dapps .kchip { cursor: default; display: inline-flex; gap: 6px; align-items: center; }
+  .dapps .kchip button { border: none; background: none; color: var(--faint); padding: 0; font-size: 13px; line-height: 1; }
+  .dapps .kchip button:hover { color: var(--rec-text); }
+  .hsearch { width: 100%; margin: 4px 0 12px; }
+  .hrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 11px 14px; border-top: 1px solid var(--line); }
+  .hrow:first-child { border-top: none; }
+  .hrow .hm { color: var(--faint); font-size: 11px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .hrow .hm b { color: var(--dim); font-weight: 700; }
+  .hrow .ht { white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; margin-top: 3px; word-break: break-word; }
+  .hrow .ht.dim { color: var(--faint); font-style: italic; }
+  .hrow .tag { border-radius: 6px; padding: 0 6px; background: var(--track); color: var(--dim); font-weight: 700; }
+  .hrow .tag.cancel { background: var(--rec-bg); color: var(--rec-text); }
+  .hrow .tag.ok { background: var(--accent-bg); color: var(--accent-text); }
+  .hrow .hb { display: flex; gap: 2px; align-items: flex-start; }
+  .statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .stat { background: var(--panel-hi); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .stat .k { color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+  .stat .v { font-size: 22px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .s { color: var(--dim); font-size: 11.5px; margin-top: 2px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+  .meterbar { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; width: 120px; }
+  .meterbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s; }
+  .netbig { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .ok-t { color: var(--accent-text); font-weight: 700; } .ng-t { color: var(--rec-text); font-weight: 700; }
+  @media (max-width: 760px) { #dictdlg .box.dict { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .dnav { flex-direction: row; overflow-x: auto; padding: 8px; } .dnav h2, .dnav .sp, .dnav .dstate { display: none; }
+    .dmain { padding: 16px; } .statgrid { grid-template-columns: 1fr; } .drow { grid-template-columns: 22px minmax(0, 1fr); } .drow .ctl { grid-column: 2; justify-content: flex-start; } }
 </style>
 </head>
 <body>
 <aside>
-  <div class="sidetop"><span class="brand">Meeting Cue<i>!</i></span><button class="iconbtn" id="setbtn" title="設定"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class="iconbtn" id="sidebtn" title="一覧を隠す"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button></div>
+  <div class="sidetop"><span class="brand">Meeting Cue<i>!</i></span><button class="iconbtn" id="setbtn" title="設定"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class="iconbtn" id="dictbtn" title="音声入力(キーで話した言葉を今のアプリに入れる)"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></button><button class="iconbtn" id="sidebtn" title="一覧を隠す"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button></div>
   <div id="reccard" title="録音中の画面へ">
     <div class="top"><span class="tally">REC</span><span id="rc-title">無題</span><span id="rc-time">00:00</span></div>
     <div class="row sys" title="スピーカー(相手)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg><canvas id="wv-system" width="400" height="48"></canvas></div>
@@ -407,6 +501,7 @@
       <span id="title">無題</span>
       <span class="sp"></span>
       <span id="b-local" class="badge local" style="display:none">LOCAL</span>
+      <span id="b-soniox" class="badge soniox" style="display:none">Soniox</span>
       <span id="b-paused" class="badge paused" style="display:none">一時停止中</span>
       <span id="b-rec" class="badge rec" style="display:none">録音中</span>
       <div id="ops"><button class="pill" id="opsbtn">&#9776; 操作 &#9662;</button>
@@ -460,6 +555,9 @@
   <label>自分の立場</label>
   <div class="seg" id="sd-mode"><button data-v="participant" class="sel">会議に参加</button><button data-v="presenter">登壇・発表</button><button data-v="audience">講演を聴く</button></div>
   <label class="check"><input type="checkbox" id="sd-local"> 仕事の会議(LOCAL: クラウドへ送らない)</label>
+  <label>文字起こし</label>
+  <div class="seg" id="sd-stt"><button data-v="local" class="sel">このパソコン</button><button data-v="soniox">Soniox(クラウド)</button></div>
+  <div class="sd-ai" id="sd-stt-note"></div>
   <div class="sd-ai" id="sd-ai"></div>
   <div class="dlgbtns"><button class="pill" id="sd-cancel">やめる</button><button class="pill on" id="sd-ok">開始</button></div>
 </div></div>
@@ -489,6 +587,9 @@
   <div class="setnote" id="set-drive-status"></div>
   <label class="check"><input type="checkbox" id="set-drive"> 記録を Google Drive へ移せるようにする(一覧の右クリック)</label>
   <div class="setrow2" id="set-drive-acct-row"><span>既定のアカウント</span><select id="set-drive-acct"></select></div>
+  <div class="setsec">会議の文字起こし(Soniox・任意)</div>
+  <div class="setnote">Soniox の API キーを登録すると、「録音を開始」で会議ごとに Soniox を選べます(話し手が入れ替わる会議では、誤りが約半分になりました)。選んだ会議の音声(相手の声を含む)は Soniox(米国)へ送られます。料金は音声 1 時間あたり約 $0.12 で、自分と相手の 2 本なら約 $0.24 です。LOCAL(仕事の会議)では選べません。</div>
+  <div id="set-stt-keys"></div>
   <div class="setsec">置き換え辞書(文字起こし)</div>
   <div class="setnote">音声認識がよく間違える固有名詞を、正しい語に置き換えます。1 行に「正しい語|誤り|誤り…」。空白の有無と英字の大文字・小文字は区別しません。1 文字だけの誤りは使いません。保存すると次の発言から効きます(録音・ライブ字幕・回答候補・サマリ)。</div>
   <textarea id="set-repl" spellcheck="false" rows="8" placeholder="Palo Alto Networks|パラワートネットワークス|パロアルト"></textarea>
@@ -501,6 +602,30 @@
   <label class="check"><input type="checkbox" id="set-nagi" checked> ナギの台詞で案内する(オフで通常の文言)</label>
   <div class="setnote">変えるとすぐに反映され、開いている他の画面にも届きます。★ と LOCAL の黄色は目印のため変わりません。</div>
   <div class="dlgbtns"><button class="pill" id="set-onb">はじめの案内</button><span class="sp"></span><button class="pill" id="set-reset">色と表示を初期値に</button><button class="pill on" id="set-close">閉じる</button></div>
+</div></div>
+<div id="dictdlg" class="dlg"><div class="box dict">
+  <nav class="dnav" aria-label="音声入力の項目">
+    <h2>音声入力</h2>
+    <button data-p="settings" class="sel"></button>
+    <button data-p="dict"></button>
+    <button data-p="repl"></button>
+    <button data-p="ai"></button>
+    <button data-p="history"></button>
+    <button data-p="net"></button>
+    <button data-p="status"></button>
+    <span class="sp"></span>
+    <div class="dstate" id="d-state"></div>
+    <button id="d-close">閉じる</button>
+  </nav>
+  <div class="dmain">
+    <section class="dpage sel" id="dp-settings"></section>
+    <section class="dpage" id="dp-dict"></section>
+    <section class="dpage" id="dp-repl"></section>
+    <section class="dpage" id="dp-ai"></section>
+    <section class="dpage" id="dp-history"></section>
+    <section class="dpage" id="dp-net"></section>
+    <section class="dpage" id="dp-status"></section>
+  </div>
 </div></div>
 <div id="onbdlg" class="dlg"><div class="box wide">
   <div class="onb-step" data-step="1">
@@ -666,6 +791,7 @@
       silence_end: '相手の声が戻りました。',
       stopping: '止めています。少しお待ちください。',
       summary: 'まとめを作っています…',
+      redo: '録音から文字起こしを仕上げています。少しお待ちください。',
     },
   };
   const PLANS_EMPTY = '会話が進むと、ここに「今こちらから聞くとよい質問」が出ます。相手から質問されたときは回答タブが優先です。';
@@ -688,7 +814,7 @@
   }
   function nagiBase() {
     if (st.recording) nagiSay(st.paused ? '一時停止しています。' : (NAGI.start[st.mode] || NAGI.start.participant), 'listen');
-    else if (st.saving) nagiSay(NAGI.code.stopping, 'think');
+    else if (st.saving) nagiSay(st.saving_note ? NAGI.code.redo : NAGI.code.stopping, 'think');
     else if (view.kind === 'review') nagiSay('発言を押すと再生します。', 'idle');   // 吹き出しは 1 行(2026-09-27 keigoly様)
     else nagiSay('どうぞ、あなたの番です。', 'idle');
   }
@@ -698,6 +824,7 @@
   // ---- 設定画面(FR-10b・2026-09-26): AI の接続先とキー・生成 / Jev / Google Drive のオン・オフ。キーの中身は画面に来ない ----
   let appSettings = {keys: {}, drive_accounts: [], providers_ready: ['openrouter']};
   const PROV = [['openrouter', 'OpenRouter'], ['anthropic', 'Anthropic'], ['openai', 'OpenAI']];
+  const STT_KEYS = [['soniox', 'Soniox']];   // 会議の文字起こし(FR-2b)。生成の接続先には並べず、設定の別の節に出す
   const provName = (p) => p === 'claude-cli' ? 'Claude サブスク' : (PROV.find(x => x[0] === p) || [p, p])[1];
   const keySet = (p) => !!appSettings.keys?.[p]?.set;
   function keyStatText(p) {
@@ -712,10 +839,10 @@
     }).join('') + ((appSettings.providers_ready || []).includes('claude-cli')   // 開発者向け(config.toml の subscription_cli)
       ? `<option value="claude-cli" ${cur === 'claude-cli' ? 'selected' : ''}>Claude サブスク(Claude Code 経由・開発者向け)</option>` : '');
   }
-  function keyRows(box, only = null) {   // 接続先ごとに: 状態・貼り付け・保存・確認・削除・キーを取得
+  function keyRows(box, only = PROV.map(x => x[0])) {   // 接続先ごとに: 状態・貼り付け・保存・確認・削除・キーを取得
     box.innerHTML = '';
-    for (const [p, n] of PROV) {
-      if (only && !only.includes(p)) continue;
+    for (const [p, n] of [...PROV, ...STT_KEYS]) {
+      if (!only.includes(p)) continue;
       const row = document.createElement('div'); row.className = 'keyrow'; row.dataset.p = p;
       row.innerHTML = `<div class="kname"><span>${n}${p === 'openrouter' ? '<span class="kstat">(Jev もこのキー)</span>' : ''}</span><span class="kstat ${keySet(p) ? 'on' : ''}">${keyStatText(p)}</span></div>
         <div class="kctl"><input type="password" placeholder="API キーを貼り付け" autocomplete="off" spellcheck="false">
@@ -804,6 +931,7 @@
     $('#set-mode-note').textContent = modeNote(); $('#set-warn').textContent = aiWarn();
     provOptions($('#set-provider')); provDetail($('#set-prov-detail'));
     if (!$('#set-keys').contains(document.activeElement)) keyRows($('#set-keys'));   // 入力中は作り直さない
+    if (!$('#set-stt-keys').contains(document.activeElement)) keyRows($('#set-stt-keys'), ['soniox']);
     $('#set-drive-status').textContent = driveStatus();
     $('#set-drive').checked = !!appSettings.drive; $('#set-drive').disabled = !(appSettings.drive_accounts || []).length;
     const accts = appSettings.drive_accounts || [];
@@ -813,9 +941,34 @@
     renderStartNote();
   }
   function renderStartNote() {
+    renderSttNote();
     const e = $('#sd-ai'); if (!e) return;
     if ($('#sd-local').checked) { e.textContent = 'LOCAL: 判定・生成・サマリのクラウド呼び出しをしません。'; return; }
     e.textContent = modeNote() + (aiWarn() ? ' ' + aiWarn() : '') + '(⚙ で変えられます)';
+  }
+  // 会議の文字起こし(FR-2b・2026-10-18): 既定はこのパソコン。Soniox はキーがあり、LOCAL でないときだけ選べる
+  const sttPick = () => document.querySelector('#sd-stt button.sel')?.dataset.v || 'local';
+  const sttSelect = (v) => document.querySelectorAll('#sd-stt button').forEach(x => x.classList.toggle('sel', x.dataset.v === v));
+  function renderSttNote() {
+    const local = $('#sd-local').checked, has = keySet('soniox');
+    const sb = document.querySelector('#sd-stt button[data-v=soniox]'); if (!sb) return;
+    sb.disabled = local || !has;
+    if (sb.disabled && sttPick() === 'soniox') sttSelect('local');
+    $('#sd-stt-note').textContent = local ? 'LOCAL では、文字起こしもこのパソコンの中だけで行います。'
+      : !has ? '⚙ で Soniox のキーを登録すると、Soniox(クラウド)も選べます。'
+      : sttPick() === 'soniox' ? 'この会議の音声(相手の声を含む)を Soniox(米国)へ送って文字起こしします。約 $0.24 / 時間(自分と相手の 2 本)。届かないときは、このパソコンの文字起こしに切り替えます。'
+      : '音声はこのパソコンの中で文字起こしします。';
+  }
+  const CH_JA = {mic: 'マイク', system: 'スピーカー', room: '対面'};
+  function renderSonioxBadge(live, rv) {   // 録音中は今の状態、記録はその記録の文字起こし
+    const stt = live ? (st.recording && st.stt === 'soniox' ? {fallback: st.stt_fallback || {}} : null)
+                     : (rv?.stt?.engine === 'soniox' ? rv.stt : null);
+    const b = $('#b-soniox'); b.style.display = stt ? '' : 'none'; if (!stt) return;
+    const fb = Object.entries(stt.fallback || {});
+    b.textContent = fb.length ? 'Soniox(一部このパソコン)' : 'Soniox';
+    b.classList.toggle('fb', fb.length > 0);
+    b.title = fb.length ? fb.map(([c, r]) => `${CH_JA[c] || c}: ${r}`).join(' / ') + ' のため、このパソコンの文字起こしに切り替えました'
+      : live ? 'この会議の音声を Soniox へ送って文字起こししています' : 'この記録は会議中に Soniox で文字起こししました';
   }
   // API キーの説明(2026-09-27): 一般の利用者には「月額プランは使えません」のまま。開発者向けの切り替え
   // (config.toml の [llm] subscription_cli)がオンの Mac では、選べる「Claude サブスク」と食い違わないよう書き分ける
@@ -1100,6 +1253,7 @@
     $('#b-rec').style.display = live && st.recording ? '' : 'none';
     $('#b-paused').style.display = live && st.paused ? '' : 'none';
     $('#b-local').style.display = (live ? st.privacy : rv?.privacy) === 'local' ? '' : 'none';
+    renderSonioxBadge(live, rv);
     $('#ops').style.display = live && st.recording ? '' : 'none';
     $('#tab-summary').style.display = rv ? '' : 'none';
     $('#player').style.display = rv ? 'block' : 'none';   // CSS の既定が none なので '' では出ない
@@ -1107,8 +1261,9 @@
     document.body.classList.toggle('idle', !live && !rv && !st.recording && !st.saving);
     $('#pl-ch').style.display = rv && Object.keys(player.chs).length > 1 ? 'flex' : 'none';
     const chip = (t, cls = '') => t ? `<span class="chip ${cls}">${esc(t)}</span>` : '';
-    if (live) $('#meta').innerHTML = chip(jdate(st.started_ms)) + chip(st.recording ? '録音中' : '保存しています…', 'live') + chip('このパソコン') + chip(MODE_JA[st.mode] || st.mode);
-    else if (rv) $('#meta').innerHTML = chip(jdate(rv.started_ms)) + chip('録音済み') + chip('このパソコン') + chip(MODE_JA[rv.mode] || rv.mode || '') + chip(mmss(rv.duration_s || 0));
+    if (live) $('#meta').innerHTML = chip(jdate(st.started_ms)) + chip(st.recording ? '録音中' : (st.saving_note || '保存しています…'), 'live') + chip('このパソコン') + chip(MODE_JA[st.mode] || st.mode);
+    else if (rv) $('#meta').innerHTML = chip(jdate(rv.started_ms)) + chip('録音済み') + chip('このパソコン') + chip(MODE_JA[rv.mode] || rv.mode || '') + chip(mmss(rv.duration_s || 0)) +
+      (rv.transcript_source === 'redo' ? chip('録音から文字起こし') : '');
     else $('#meta').innerHTML = `<div class="cue">${nagiOn ? '<b>ナギ</b>' + esc(NAGI.idle) : esc('左の一覧から記録を選ぶか、右上の「録音を開始」を押してください。')}</div>`;
     const rb = $('#recbtn'); rb.classList.toggle('stop', !!st.recording);
     rb.disabled = !st.recording && !!st.saving;   // 停止後、回答とサマリを仕上げている間は次の録音を始めない
@@ -1326,14 +1481,15 @@
     const rows = document.createDocumentFragment();
     d.transcript.forEach(u => {
       const pos = uttPos(u);
-      addUtt(u, pos ?? u.at_s, d.judgments[u.rid], rows);
+      addUtt(u, pos ?? u.at_s, d.judgments[u.jrid || u.rid], rows);   // し直した行は会議中の発言の判定(jrid)
       const el = utts.get(u.rid);
       if (el && pos != null) { el.dataset.pos = pos; el.onclick = (e) => { if (e.target.closest('.copy')) return; seek(pos); play(); }; }
     });
     $('#utts').appendChild(rows);
     if (keep) pane.scrollTop = pane.scrollHeight;
     if (!d.transcript.length) $('#utts').innerHTML = '<div class="empty">文字起こしはありません</div>';
-    const qs = d.transcript.filter(u => d.judgments[u.rid]?.trigger || d.cues[u.rid]?.answers?.length || d.cues[u.rid]?.digs?.length);
+    // 回答タブは会議中の発言から(候補はその文に対して作った)。文字起こしを録音からし直した記録でも同じ
+    const qs = d.questions || d.transcript.filter(u => d.judgments[u.rid]?.trigger || d.cues[u.rid]?.answers?.length || d.cues[u.rid]?.digs?.length);
     qs.slice().reverse().forEach(u => {
       const cu = d.cues[u.rid] || {}; const c = card(u.rid, u.text); c.el.classList.remove('new');
       if (cu.intent) c.el.querySelector('.intent').textContent = '意図: ' + cu.intent;
@@ -1703,7 +1859,8 @@
     status(ev) { const n = nagiOn && NAGI.code[ev.code]; toast(n || ev.text, false, !!n); nagiEvent(ev.code); },
     error(ev) { const n = nagiOn && NAGI.code[ev.code]; toast(n || ev.text, true, !!n); nagiEvent(ev.code); },
   };
-  const NAGI_EVENT = {silence: ['alert', 15000], silence_end: ['listen', 6000], stopping: ['think', 20000], summary: ['think', 30000]};
+  const NAGI_EVENT = {silence: ['alert', 15000], silence_end: ['listen', 6000], stopping: ['think', 20000], summary: ['think', 30000],
+                      redo: ['think', 20000]};
   function nagiEvent(code) { const m = NAGI_EVENT[code]; if (m) nagiSay(NAGI.code[code], m[0], m[1]); }
   let obsWasBuilding = false;
   let es = null;
@@ -1713,13 +1870,15 @@
   }
 
   // ---- 操作 ----
-  $('#recbtn').onclick = () => { if (st.recording) action('stop'); else { renderStartNote(); $('#startdlg').classList.add('open'); $('#sd-title').focus(); } };
+  $('#recbtn').onclick = () => { if (st.recording) action('stop'); else { sttSelect('local'); renderStartNote(); $('#startdlg').classList.add('open'); $('#sd-title').focus(); } };
   $('#sd-local').onchange = renderStartNote;
+  document.querySelectorAll('#sd-stt button').forEach(b => b.onclick = () => { if (!b.disabled) { sttSelect(b.dataset.v); renderSttNote(); } });
   document.querySelectorAll('#sd-mode button').forEach(b => b.onclick = () => { document.querySelectorAll('#sd-mode button').forEach(x => x.classList.toggle('sel', x === b)); });
   $('#sd-cancel').onclick = () => $('#startdlg').classList.remove('open');
   $('#sd-ok').onclick = () => {
     const mode = document.querySelector('#sd-mode button.sel').dataset.v;
-    action('start', {mode, privacy: $('#sd-local').checked ? 'local' : 'private', title: $('#sd-title').value.trim()});
+    action('start', {mode, privacy: $('#sd-local').checked ? 'local' : 'private', title: $('#sd-title').value.trim(),
+                     stt: $('#sd-local').checked ? 'local' : sttPick()});
     $('#startdlg').classList.remove('open'); $('#sd-title').value = '';
   };
   // 日本語入力の変換中・確定のキー。WebKit(アプリのウィンドウ)は変換確定の Enter で isComposing が false・keyCode 229 で来る
@@ -1771,6 +1930,483 @@
     if (e.key === 'Enter') { e.preventDefault(); $('#title').blur(); }
     if (e.key === 'Escape') { $('#title').textContent = $('#title').dataset.orig || ''; $('#title').blur(); }   // 元に戻す
   };
+
+  // ---- 音声入力(FR-14b・2026-10-19 keigoly様「キーバインドの設定を追加」「それ以外の機能も全て取り込む」)----
+  // Aqua Voice の設定の画面に寄せる。設定は /api/dictation(~/.meeting-cue/dictation/settings.json)。キーを決める間は
+  // すべてのキーの登録を外す(押したキーが音声入力を動かさないように)。話した文はこの画面と履歴の置き場にだけ出す。
+  const IC = {
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    dict: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+    repl: '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+    ai: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/>',
+    net: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
+    status: '<path d="M4 20V10"/><path d="M9 20V4"/><path d="M14 20v-7"/><path d="M19 20V9"/>',
+    power: '<path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/>',
+    send: '<path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
+    toggle: '<rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="8" cy="12" r="2"/>',
+    clip: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+    x: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/>',
+    pencil: '<path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>',
+    dots: '<circle cx="12" cy="5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="19" r="1.3" fill="currentColor"/>',
+    sound: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
+    mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M22 9l-6 6"/><path d="M16 9l6 6"/>',
+    bar: '<rect x="3" y="14" width="18" height="6" rx="3"/><path d="M7 17h.01"/><path d="M12 4v6"/><path d="M9 7l3 3 3-3"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    edit: '<path d="M4 6h16"/><path d="M4 11h9"/><path d="M15 21l1-4 5-5 3 3-5 5z"/>',
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>',
+    enter: '<path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    play: '<path d="M7 4l13 8-13 8z"/>',
+    trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/>',
+    spark: '<path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/>',
+  };
+  const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || ''}</svg>`;
+  const D_PAGES = {settings: '設定', dict: '辞書', repl: '置換', ai: 'カスタム指示', history: '履歴', net: 'ネットワーク', status: 'ステータス'};
+  document.querySelectorAll('.dnav button[data-p]').forEach(b => { b.innerHTML = ic(b.dataset.p) + D_PAGES[b.dataset.p]; });
+  const SEND_LABEL = {off: 'オフ(語を残す)', enter: 'Enter', cmd_enter: '⌘ + Enter', paste_only: '貼り付けのみ'};
+  const LANG_LABEL = {ja_en: '日本語(英語まじり)', ja: '日本語', en: 'English', auto: '自動'};
+  const BAR_LABEL = {recording: '録っている間だけ', always: '常に出す', off: '出さない'};
+  const PET_LABEL = {always: '常に出す', recording: '録っている間だけ', off: '出さない'};
+  const PET_SIZE_LABEL = {s: '小', m: '中', l: '大'};
+  const SOUND_LABEL = {default: '標準', soft: 'やわらかい', classic: 'クラシック'};
+  const KEY_WHY = {in_use: 'ほかのアプリが同じキーを使っています', listen_permission: '入力監視の許可が要ります(ステータス)',
+                   unsafe: 'ふだんの入力を奪うキーです', register_failed: '登録できませんでした', bad_key: 'キーを読めません'};
+  const RT = [['never', '常にインスタント', 'テキストは最後に表示されます。結果が最速です。'],
+              ['handsfree', 'ハンズフリー時のみリアルタイム', '押している間はインスタント、ハンズフリーでは話して間を置くたびに、その分を貼ります。'],
+              ['always', '常にリアルタイム', 'どちらでも、話して間を置くたびに、その分を貼ります(間で区切るので、インスタントより少し聞き違えが増えます)。']];
+  let dv = null, dPage = 'settings', dCap = null, capMod = null, capOther = false, dDevices = null, dApps = null, dAudio = null;
+  const opts = (m, cur) => Object.entries(m).map(([v, t]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const sw = (k, on, g = '') => `<label class="switch"><input type="checkbox" data-sw="${k}" data-g="${g}" ${on ? 'checked' : ''}><span></span></label>`;
+  const row = (icon, title, desc, ctl) => `<div class="drow">${ic(icon)}<div><div class="t">${title}</div>${desc ? `<div class="d">${desc}</div>` : ''}</div><div class="ctl">${ctl}</div></div>`;
+
+  async function dLoad() {
+    try { const r = await fetch('/api/dictation'); dv = r.ok ? await r.json() : null; } catch (e) { dv = null; }
+    dRender();
+  }
+  async function dSave(patch) {
+    const r = await post('/api/dictation/settings', patch); const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(j.error || '保存できませんでした', true); dRender(); return false; }
+    dv = j; dRender(); return true;
+  }
+  function dOpen(page) { $('#dictdlg').classList.add('open'); dShow(page || dPage);
+    dLoad().then(() => { if (dv?.running && !dDevices) dLoadLists(); }); }   // マイクとアプリの一覧は待ち受けている間だけ取れる
+  async function dClose() { if (dCap) await capEnd(); if (dAudio) { dAudio.pause(); dAudio = null; } $('#dictdlg').classList.remove('open'); }
+  function dShow(p) {
+    dPage = p;
+    document.querySelectorAll('.dnav button[data-p]').forEach(b => b.classList.toggle('sel', b.dataset.p === p));
+    document.querySelectorAll('.dpage').forEach(s => s.classList.toggle('sel', s.id === 'dp-' + p));
+    if (p === 'dict') dTerms(); if (p === 'repl') dRepl(); if (p === 'history') dHistory(); if (p === 'status') dStatus();
+    if (p === 'net') { dRenderNet(); if (!dv?.net) dNetCheck(); }
+    if (p === 'settings' && dv?.running && !dDevices) dLoadLists();
+  }
+  document.querySelectorAll('.dnav button[data-p]').forEach(b => b.onclick = () => dShow(b.dataset.p));
+  $('#dictbtn').onclick = () => dOpen();
+  $('#d-close').onclick = dClose;
+  $('#dictdlg').onclick = (e) => { if (e.target.id === 'dictdlg' && !dCap) dClose(); };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !dCap && $('#dictdlg').classList.contains('open') && !$('#ctxmenu').classList.contains('open')) dClose(); });
+
+  function dRender() {
+    const st = $('#d-state');
+    if (!dv) { st.innerHTML = '<b>読み込めませんでした</b>'; $('#dp-settings').innerHTML = '<div class="dwarn">音声入力の設定を読み込めませんでした。</div>'; return; }
+    const s = dv.settings, live = dv.live?.state;
+    st.className = 'dstate' + (dv.running ? ' on' : '');
+    st.innerHTML = dv.running ? `<b>${live === 'recording' ? '● 録音中' : live === 'processing' ? '文字にしています…' : '待ち受けています'}</b>${esc(dv.labels.activate.join(' / '))} で話す`
+      : `<b>${s.enabled ? '止まっています' : '使わない設定です'}</b>${esc(dv.error || '')}`;
+    dRenderSettings(); dRenderAI();
+    if (dPage === 'net') dRenderNet();
+    if (dPage === 'status') dStatus();
+  }
+
+  // --- 設定(送信コマンド・言語・キーバインド・有効化・システム) ---
+  function chip(a, i, label, r) {
+    const cap = dCap && dCap.action === a && dCap.index === i;
+    const why = r && r.ok === false ? (KEY_WHY[r.error] || '登録できませんでした') : '';
+    return `<span class="kchip ${cap ? 'cap' : ''} ${why ? 'ng' : ''}" data-chip="${a}" data-i="${i}" title="${esc(why || 'クリックで変える')}">${cap ? 'キーを押してください…' : esc(label)}${why ? ' ⚠' : ''}</span>`;
+  }
+  function krow(a, icon, title, desc) {
+    const k = dv.settings.keys, L = dv.labels, res = dv.bindings?.[a] || [];
+    let chips;
+    if (a === 'activate' || a === 'handsfree') {
+      chips = k[a].map((x, i) => chip(a, i, L[a][i], res[i])).join('');
+      if (dCap && dCap.action === a && dCap.index === k[a].length) chips += chip(a, k[a].length, '', null);
+      if (!chips) chips = '<span class="kchip none">なし</span>';
+    } else if (a === 'lock') chips = (k.lock || (dCap?.action === 'lock')) ? chip(a, 0, L.lock, res[0]) : '<span class="kchip none">使わない</span>';
+    else if (a === 'paste_last') chips = (k.paste_last || (dCap?.action === 'paste_last')) ? chip(a, 0, L.paste_last, res[0]) : '<span class="kchip none">使わない</span>';
+    else chips = chip(a, 0, L.cancel || 'なし', res[0]);
+    const tail = a === 'cancel' ? sw('cancel_enabled', k.cancel_enabled, 'keys')
+      : (dCap && dCap.action === a ? '<button class="pill" data-capstop="1">やめる</button>'
+        : `<button class="ibtn" data-edit="${a}" title="キーを変える">${ic('pencil')}</button><button class="ibtn" data-more="${a}" title="ほかの操作">${ic('dots')}</button>`);
+    return row(icon, title, desc, chips + tail);
+  }
+  function dRenderSettings() {
+    const s = dv.settings, el = $('#dp-settings');
+    const appsChips = s.auto_enter_apps.map((a, i) => `<span class="kchip">${esc(a.name)}<button data-delapp="${i}" title="外す">×</button></span>`).join('');
+    const appOpts = (dApps || []).filter(a => !s.auto_enter_apps.some(x => x.bundle === a.bundle))
+      .map(a => `<option value="${esc(a.bundle)}" data-name="${esc(a.name)}">${esc(a.name)}</option>`).join('');
+    const mics = [['', 'システムの既定のマイク'], ...((dDevices || []).map(d => [d.uid, d.name + (d.default ? '(今の既定)' : '')]))];
+    if (s.mic && !mics.some(([u]) => u === s.mic)) mics.push([s.mic, '選んだマイク(見つかりません)']);
+    el.innerHTML = `
+      <div class="dhead"><h3>設定</h3><span class="sp"></span><span class="dpill ${dv.running ? 'on' : ''}">${dv.running ? '待ち受け中' : '停止中'}</span></div>
+      ${dv.error ? `<div class="dwarn">${esc(dv.error)}</div>` : ''}
+      <div class="dcard">
+        ${row('power', '音声入力を使う', 'このアプリが起動している間、キーで話した言葉を Soniox で文字にして、今使っているアプリに入れます。ログイン時に起動は、メニューバーの Meeting Cue! から。', sw('enabled', s.enabled))}
+        ${row('send', '送信コマンド', '最後に「送信して」と言うと、その語を除いて貼り、送信キーを押します。', `<select data-k="send_key">${opts(SEND_LABEL, s.send_key)}</select>`)}
+        ${row('net', '言語', 'Soniox に渡す言語のヒントです。', `<select data-k="language">${opts(LANG_LABEL, s.language)}</select>`)}
+      </div>
+      <div class="dsec">キーバインド</div>
+      <div class="dcard">
+        ${krow('activate', 'toggle', '有効化', '長く押す = 押している間だけ録る / 短く 2 回 = ハンズフリー(もう一度押すまで)。Fn だけ・右 ⌘ だけなど 1 つのキーでも使えます')}
+        ${krow('lock', 'toggle', 'ハンズフリーを有効化', '有効化のキーを押したまま押すと、離しても録り続けます')}
+        ${krow('handsfree', 'mic', 'ハンズフリーで始める', '押すと始まり、もう一度押すと終わります(任意)')}
+        ${krow('paste_last', 'clip', '最後の文字起こしを貼り付け', '取り消した分もこれで戻せます')}
+        ${krow('cancel', 'x', 'キャンセル', '録っている間だけ効きます(それ以外のときはふつうのキーのまま)')}
+      </div>
+      <button class="dreset" data-reset="keys">デフォルトにリセット</button>
+      ${[...s.keys.activate, ...s.keys.handsfree].includes('fn') ? '<div class="dwarn">Fn は Aqua Voice の既定のキーでもあります。両方が反応するので、こちらを試す間は Aqua Voice を終了するか、Aqua Voice のキーを変えてください。</div>' : ''}
+      ${dv.modifier_only ? `<div class="dnote">Fn・右 ⌘ などの修飾キーだけのキーは、入力監視の許可が要ります${dv.ready?.listen === false ? '(<b class="ng-t">まだ許可されていません</b>。ステータスから許可を求められます)' : ''}。Fn を使うときは、システム設定 › キーボード の「🌐 キーを押して」を「何もしない」にしてください。Aqua Voice と同じキーにすると、両方が反応します。</div>` : ''}
+      <div class="dnote">キーの枠を押す(または鉛筆)と、次に押したキーに変わります。待ち受けているキーは、決め終わるまで止めています。</div>
+      <div class="dsec">有効化</div>
+      <div class="dcard">${RT.map(([v, t, d]) => `<div class="dradio ${s.realtime === v ? 'sel' : ''}" data-rt="${v}"><div><div class="t">${t}${v === 'never' ? '<span class="dtag">既定</span>' : ''}</div><div class="d">${d}</div></div><span class="rd"></span></div>`).join('')}</div>
+      ${s.ai_cleanup || s.edit_mode ? '<div class="dnote">AI で整える・編集モードを使うときは、最後にまとめて貼ります。</div>' : ''}
+      <div class="dsec">システム</div>
+      <div class="dcard">
+        ${row('sound', '音を鳴らす', '録り始め・終わり・取り消しの音です。', `<select data-k="sound_set" ${s.sounds ? '' : 'disabled'}>${opts(SOUND_LABEL, s.sound_set)}</select>${sw('sounds', s.sounds)}`)}
+        ${row('bar', 'フローティングバー', '画面の下に、録音中の印・音の大きさ・経過秒・結果を出します。クリックでハンズフリーの開始と停止、右クリックで「最後の文字起こしを貼り付け」。', `<select data-k="floating_bar">${opts(BAR_LABEL, s.floating_bar)}</select>`)}
+        ${row('spark', 'ナギ(ペット)', '画面の右下に小さく出て、録っている間・文字にしている間・会議で質問を検知した時に表情が変わります。透明な所のクリックは下のアプリに届き、カーソルを重ねると薄くなります。ドラッグで動かせて、右クリックで隠す・大きさ・位置を戻す。', `<select data-k="pet_size" ${s.pet === 'off' ? 'disabled' : ''}>${opts(PET_SIZE_LABEL, s.pet_size)}</select><select data-k="pet">${opts(PET_LABEL, s.pet)}</select>`)}
+        ${row('chat', '話している言葉を出す', 'フローティングバーの上に、話している言葉をその場で出します(画面を共有しているときは、相手からも見えます)。', sw('live_text', s.live_text))}
+        ${row('mute', 'ほかの音を消す', '録っている間、パソコンの出力を消音し、終わったら戻します(会議中は相手の声も聞こえなくなります)。', sw('mute_audio', s.mute_audio))}
+        ${row('clip', 'クリップボード履歴に残さない', '貼り付けに使ったクリップボードを、クリップボードの履歴アプリに残さない印を付けます。', sw('avoid_clipboard_history', s.avoid_clipboard_history))}
+        ${row('mic', 'マイク', dDevices ? '' : (dv.running ? 'マイクの一覧を読み込んでいます…' : '待ち受けている間に選べます。'),
+             `<select data-k="mic">${mics.map(([u, n]) => `<option value="${esc(u)}" ${u === s.mic ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+              <button class="pill" id="d-meter" ${dv.running ? '' : 'disabled'}>${dv.meter?.on ? 'テストを止める' : 'マイクをテスト'}</button><span class="meterbar"><i id="d-meter-i"></i></span>`)}
+        ${row('lock', 'プライバシーモード', '録音と文を保存しません(履歴に出ず、使った回数だけを数えます)。「最後の文字起こしを貼り付け」は、アプリを終えるまで使えます。', sw('privacy_mode', s.privacy_mode))}
+        ${row('eye', 'ディープコンテキスト', '話し始めた時の前面のアプリ名・ウィンドウの題名・カーソルの前の文(1,000 字まで)を Soniox に渡して精度を上げます。<b>画面の文字が Soniox に送られます</b>(パスワードの欄は読みません・アクセシビリティの許可が要ります)。', sw('deep_context', s.deep_context))}
+        ${row('edit', '編集モード', '文を選んだまま有効化のキーを押して直し方を話すと、AI が直して貼り替えます。<b>選んだ文と話した指示が生成 AI へ送られます</b>(カスタム指示を参照)。', sw('edit_mode', s.edit_mode))}
+        ${row('chat', 'カジュアルなメッセージ', `チャットのアプリでは文末の「。」を付けません(英語は文頭を小文字に)。対象: ${esc(dv.casual_apps.join('・'))}`, sw('casual', s.casual))}
+        ${row('enter', '自動 Enter', '選んだアプリでは、貼ったあと毎回 Enter を押して送信します。', `<span class="dapps">${appsChips}</span>${dv.running ? `<select id="d-addapp"><option value="">＋ アプリを追加</option>${appOpts}</select>` : ''}`)}
+      </div>
+      <button class="dreset" data-reset="system">デフォルトにリセット</button>`;
+    dWire(el);
+  }
+  function dWire(el) {
+    el.querySelectorAll('[data-sw]').forEach(i => i.onchange = () => {
+      if (i.dataset.g === 'keys') dSave({keys: {...dv.settings.keys, [i.dataset.sw]: i.checked}});
+      else dSave({[i.dataset.sw]: i.checked});
+    });
+    el.querySelectorAll('select[data-k]').forEach(x => x.onchange = () => dSave({[x.dataset.k]: x.value}));
+    el.querySelectorAll('[data-rt]').forEach(x => x.onclick = () => dSave({realtime: x.dataset.rt}));
+    el.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {
+      const r = await post('/api/dictation/reset', {section: b.dataset.reset}); const j = await r.json().catch(() => ({}));
+      if (r.ok) { dv = j; dRender(); toast('既定に戻しました'); } else toast(j.error || '戻せませんでした', true);
+    });
+    el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => capStart(b.dataset.edit, 0));
+    el.querySelectorAll('.kchip[data-chip]').forEach(c => c.onclick = () => { if (!dCap && c.dataset.chip !== 'cancel') capStart(c.dataset.chip, +c.dataset.i); });
+    el.querySelectorAll('[data-capstop]').forEach(b => b.onclick = capEnd);
+    el.querySelectorAll('[data-more]').forEach(b => b.onclick = (e) => { e.stopPropagation(); dMore(e, b.dataset.more); });
+    el.querySelectorAll('[data-delapp]').forEach(b => b.onclick = () => {
+      const apps = dv.settings.auto_enter_apps.filter((_, i) => i !== +b.dataset.delapp); dSave({auto_enter_apps: apps});
+    });
+    const add = el.querySelector('#d-addapp');
+    if (add) add.onchange = () => { const o = add.selectedOptions[0]; if (!o?.value) return;
+      dSave({auto_enter_apps: [...dv.settings.auto_enter_apps, {bundle: o.value, name: o.dataset.name || o.value}]}); };
+    const m = el.querySelector('#d-meter');
+    if (m) m.onclick = async () => { const r = await post('/api/dictation/meter', {on: !dv.meter?.on}); if (!r.ok) toast((await r.json().catch(() => ({}))).error || 'テストできません', true); };
+  }
+  async function dLoadLists() {
+    const get = async (u) => { try { const r = await fetch(u); return r.ok ? await r.json() : null; } catch (e) { return null; } };
+    const [d, a] = await Promise.all([get('/api/dictation/devices'), get('/api/dictation/apps')]);
+    if (d) dDevices = d.devices || []; if (a) dApps = (a.apps || []).sort((x, y) => x.name.localeCompare(y.name, 'ja'));
+    if (dv) dRenderSettings();
+  }
+  function dMore(e, a) {
+    closeCtx(); const m = $('#ctxmenu'); m.innerHTML = '';
+    const item = (label, fn, why = '') => {
+      const b = document.createElement('button'); b.textContent = label; b.setAttribute('role', 'menuitem');
+      if (why) { b.className = 'off'; b.title = why; } else b.onclick = () => { closeCtx(); fn(); };
+      m.appendChild(b);
+    };
+    const k = JSON.parse(JSON.stringify(dv.settings.keys)), def = dv.defaults.keys, L = dv.labels;
+    if (a === 'activate') item('Fn(🌐)キーにする', () => { k.handsfree = k.handsfree.filter(x => x !== 'fn'); k.activate = ['fn']; dSave({keys: k}); },
+                               k.activate.length === 1 && k.activate[0] === 'fn' ? 'すでに Fn です' : '');
+    if (a === 'activate' || a === 'handsfree') {
+      item('キーを追加', () => capStart(a, k[a].length), k[a].length >= 3 ? '3 つまでです' : '');
+      item('Fn(🌐)キーを追加', () => { k[a] = [...k[a], 'fn']; dSave({keys: k}); },
+           k.activate.includes('fn') || k.handsfree.includes('fn') ? 'すでに使っています' : k[a].length >= 3 ? '3 つまでです' : '');
+      k[a].forEach((x, i) => { if (a === 'handsfree' || k[a].length > 1) item(`「${L[a][i]}」を外す`, () => { k[a].splice(i, 1); dSave({keys: k}); }); });
+    } else {
+      item('使わない', () => { k[a] = ''; dSave({keys: k}); }, k[a] ? '' : 'いま使っていません');
+    }
+    m.appendChild(document.createElement('hr'));
+    item('既定に戻す', () => { k[a] = def[a]; dSave({keys: k}); });
+    m.classList.add('open');
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + 'px';
+    m.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + 'px';
+  }
+  // キーを決める: 次に押したキー(修飾 + キー / 修飾キーだけ)にする。Esc はやめる(キャンセルの行では Esc もキーにできる)
+  const CODE = {Space: 'SPACE', Escape: 'ESCAPE', Enter: 'RETURN', Tab: 'TAB', Backspace: 'DELETE', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
+                ArrowUp: 'UP', ArrowDown: 'DOWN', Minus: 'MINUS', Equal: 'EQUAL', BracketLeft: 'LBRACKET', BracketRight: 'RBRACKET',
+                Backslash: 'BACKSLASH', Semicolon: 'SEMICOLON', Quote: 'QUOTE', Comma: 'COMMA', Period: 'PERIOD', Slash: 'SLASH', Backquote: 'GRAVE'};
+  const MODCODE = {ControlLeft: 'lctrl', ControlRight: 'rctrl', AltLeft: 'lopt', AltRight: 'ropt', MetaLeft: 'lcmd', MetaRight: 'rcmd',
+                   ShiftLeft: 'lshift', ShiftRight: 'rshift', Fn: 'fn'};
+  const MODONLY = new Set(Object.values(MODCODE));
+  const modOf = (e) => MODCODE[e.code] || (e.key === 'Fn' ? 'fn' : '');
+  const codeKey = (c) => /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit[0-9]$/.test(c) ? c.slice(5) : /^F([1-9]|1[0-9]|20)$/.test(c) ? c : (CODE[c] || '');
+  async function capStart(action, index) {
+    if (dCap) await capEnd();
+    dCap = {action, index}; capMod = null; capOther = false;
+    await post('/api/dictation/suspend', {on: true});
+    post('/api/dictation/capture', {on: true});   // Fn などブラウザが知らせないキーは、ヘルパーが拾う(SSE の captured)
+    dRenderSettings();
+  }
+  async function capEnd() { dCap = null; capMod = null; post('/api/dictation/capture', {on: false});
+    await post('/api/dictation/suspend', {on: false}); if (dv) dRenderSettings(); }
+  // ブラウザかヘルパーが拾ったキーを、行ごとの決まりで受ける(先に届いた方だけ)
+  function capAccept(spec) {
+    if (!dCap) return;
+    const a = dCap.action, parts = spec.split('+'), key = parts[parts.length - 1], mods = parts.slice(0, -1);
+    const only = MODONLY.has(spec), fkey = /^F([1-9]|1[0-9]|20)$/.test(key);
+    if (spec.startsWith('?')) { toast('このキーは使えません', true); return; }
+    if (spec === 'ESCAPE' && a !== 'cancel') { capEnd(); return; }
+    if (a === 'lock') {
+      if (only || mods.length) { toast('ハンズフリーに切り替えるキーは、修飾なしの 1 つのキーです(有効化を押したまま押します)', true); return; }
+      capSet(key); return;
+    }
+    if (a === 'cancel') {
+      if (only || !(key === 'ESCAPE' || fkey || mods.some(m => m !== 'shift'))) {
+        toast('キャンセルは Esc・F キー、または ⌃・⌥・⌘ と組んだキーにしてください', true); return;
+      }
+      capSet(spec); return;
+    }
+    if (only) {
+      if (a === 'paste_last') { toast('最後の文字起こしを貼り付けは、⌃・⌥・⌘ と組んだキーか F キーにしてください', true); return; }
+      capSet(spec); return;
+    }
+    if (!mods.some(m => m !== 'shift') && !fkey) {
+      toast('1 つのキーなら Fn・右 ⌘・右 ⌥ などの修飾キーか F キーを押してください。文字のキーだけは、ふだんの入力を奪うので使えません', true); return;
+    }
+    capSet(spec);
+  }
+  // 決めている途中で画面が閉じる・読み直されるときも、止めたキーを戻す(ヘルパーも 120 s で自分で戻す)
+  window.addEventListener('pagehide', () => {
+    if (dCap) navigator.sendBeacon('/api/dictation/suspend', new Blob([JSON.stringify({on: false})], {type: 'application/json'}));
+  });
+  async function capSet(spec) {
+    post('/api/dictation/capture', {on: false});
+    const {action, index} = dCap, k = JSON.parse(JSON.stringify(dv.settings.keys));
+    if (action === 'activate' || action === 'handsfree') { if (index < k[action].length) k[action][index] = spec; else k[action].push(spec); }
+    else k[action] = spec;
+    dCap = null; capMod = null;
+    await dSave({keys: k});
+    await post('/api/dictation/suspend', {on: false});
+  }
+  window.addEventListener('keydown', (e) => {
+    if (!dCap) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.repeat) return;
+    const mod = modOf(e);
+    if (mod) { if (!capMod) capMod = mod; else capOther = true; return; }
+    capOther = true;
+    if (e.code === 'Escape' && dCap.action !== 'cancel') { capEnd(); return; }
+    const key = codeKey(e.code);
+    if (!key) return;   // ブラウザが名前を知らないキーは、ヘルパーが拾った方で受ける
+    const mods = [e.ctrlKey && 'ctrl', e.altKey && 'opt', e.shiftKey && 'shift', e.metaKey && 'cmd'].filter(Boolean);
+    capAccept([...mods, key].join('+'));
+  }, true);
+  window.addEventListener('keyup', (e) => {
+    const mod = modOf(e);
+    if (!dCap || !mod) return;
+    e.preventDefault(); e.stopPropagation();
+    if (capMod === mod && !capOther) capAccept(mod);   // ほかのキーを押さずに離した = 修飾キーだけのキー
+    capMod = null; capOther = false;
+  }, true);
+
+  // --- 辞書・置換 ---
+  async function dTerms() {
+    const el = $('#dp-dict');
+    const j = await fetch('/api/dictation/terms').then(r => r.json()).catch(() => ({text: '', count: 0}));
+    el.innerHTML = `<div class="dhead"><h3>辞書</h3><span class="sp"></span><span class="dpill">${j.count} 語</span></div>
+      <div class="dnote">Soniox に渡す語です(1 行に 1 語・# で始まる行は注釈・300 語まで)。使う語だけを正しい表記で書いてください。余計な語や、空白を抜いた書き方は取り違えの元になります。</div>
+      <textarea id="d-terms" rows="18" spellcheck="false" placeholder="Meeting Cue&#10;RunPod&#10;Claude Code">${esc(j.text)}</textarea>
+      <div class="dhead" style="margin-top:8px"><span class="dnote" id="d-terms-st"></span><span class="sp"></span><button class="pill on" id="d-terms-save">保存</button></div>`;
+    $('#d-terms-save').onclick = async () => {
+      const r = await post('/api/dictation/terms', {text: $('#d-terms').value}); const x = await r.json().catch(() => ({}));
+      $('#d-terms-st').textContent = r.ok ? `保存しました(${x.count} 語${x.over ? '・300 語を超えた分は使いません' : ''})。次に話した時から効きます` : (x.error || '保存できませんでした');
+    };
+  }
+  async function dRepl() {
+    const el = $('#dp-repl');
+    const [own, shared] = await Promise.all([fetch('/api/dictation/replacements').then(r => r.json()).catch(() => ({text: ''})),
+                                             fetch('/api/replacements').then(r => r.json()).catch(() => ({text: ''}))]);
+    const st = (v) => `${v.rules ?? 0} 件${(v.ignored || []).length ? `・使えない行 ${v.ignored.length}` : ''}`;
+    el.innerHTML = `<div class="dhead"><h3>置換</h3></div>
+      <div class="dsec">音声入力だけ</div>
+      <div class="dnote">言ったフレーズを、決めた文に置き換えます(定型文・メールアドレス・URL に)。1 行に「置き換え後|言い方|言い方…」。置き換え後の <code>\\n</code> は改行です。会議の文字起こしには掛けません。</div>
+      <textarea id="d-own" rows="8" spellcheck="false" placeholder="よろしくお願いいたします。\\n山田|署名を入れて&#10;https://example.com|リンクを貼って">${esc(own.text)}</textarea>
+      <div class="dhead" style="margin-top:8px"><span class="dnote" id="d-own-st">${st(own)}</span><span class="sp"></span><button class="pill on" id="d-own-save">保存</button></div>
+      <div class="dsec">会議と共通(置き換え辞書)</div>
+      <div class="dnote">音声認識がよく間違える固有名詞を、正しい語に置き換えます(会議の文字起こし・ライブ字幕・音声入力のすべて)。1 行に「正しい語|誤り|誤り…」。⚙ の置き換え辞書と同じものです。</div>
+      <textarea id="d-shared" rows="8" spellcheck="false">${esc(shared.text)}</textarea>
+      <div class="dhead" style="margin-top:8px"><span class="dnote" id="d-shared-st">${st(shared)}</span><span class="sp"></span><button class="pill on" id="d-shared-save">保存</button></div>`;
+    const saver = (btn, area, url, out) => $(btn).onclick = async () => {
+      const r = await post(url, {text: $(area).value}); const v = await r.json().catch(() => ({}));
+      $(out).textContent = r.ok ? '保存しました・' + st(v) : (v.error || '保存できませんでした');
+    };
+    saver('#d-own-save', '#d-own', '/api/dictation/replacements', '#d-own-st');
+    saver('#d-shared-save', '#d-shared', '/api/replacements', '#d-shared-st');
+  }
+
+  // --- カスタム指示(AI で整える・編集モード) ---
+  function dRenderAI() {
+    const s = dv.settings, el = $('#dp-ai');
+    if (el.contains(document.activeElement) && document.activeElement.id === 'd-ci') return;   // 書いている途中は描き直さない
+    el.innerHTML = `<div class="dhead"><h3>カスタム指示</h3></div>
+      <div class="dcard">
+        ${row('spark', 'AI で整える', '仕上げた文を、⚙ の生成 AI(回答候補と同じ速いモデル)が、認識の誤り・句読点・言い直しだけ直します。意味と言い回しは変えません。1 回あたり約 0.5〜1.5 秒と、わずかな費用(月の予算の台帳に積みます)がかかります。<b>話した文が生成 AI の会社へ送られます</b>。', sw('ai_cleanup', s.ai_cleanup))}
+        ${row('edit', '編集モード', '文を選んだまま有効化のキーを押して直し方を話すと(例「もっと丁寧に」「箇条書きに」)、AI が直して貼り替えます。<b>選んだ文も送られます</b>。', sw('edit_mode', s.edit_mode))}
+      </div>
+      ${(s.ai_cleanup || s.edit_mode) && dv.ai_why ? `<div class="dwarn">${esc(dv.ai_why)}</div>` : ''}
+      <div class="dsec">出力スタイルの好みや細かい指示</div>
+      <textarea id="d-ci" class="prose" rows="8" placeholder="例: 箇条書きで話したときは「・」で始める。数字は半角にする。">${esc(s.custom_instructions)}</textarea>
+      <div class="dhead" style="margin-top:8px"><span class="dnote" id="d-ci-st">AI で整えるがオンのときだけ使います(既定はオフ)。</span><span class="sp"></span><button class="pill on" id="d-ci-save">保存</button></div>`;
+    dWire(el);
+    $('#d-ci-save').onclick = async () => { if (await dSave({custom_instructions: $('#d-ci').value})) $('#d-ci-st').textContent = '保存しました'; };
+  }
+
+  // --- 履歴 ---
+  let hOff = 0, hQ = '', hItems = [];
+  const hTime = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : (isToday(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()} `) + `${d.getHours()}:${pad(d.getMinutes())}`; };
+  async function dHistory(more = false) {
+    const el = $('#dp-history');
+    if (!more) { hOff = 0; hItems = []; }
+    const j = await fetch(`/api/dictation/history?q=${encodeURIComponent(hQ)}&offset=${hOff}`).then(r => r.json()).catch(() => ({items: [], total: 0}));
+    hItems = hItems.concat(j.items); hOff = hItems.length;
+    const tags = (it) => [it.mode === 'toggle' ? 'ハンズフリー' : it.mode === 'hold' ? '押している間' : '', it.realtime ? 'リアルタイム' : '',
+                          it.sent ? '送信' : '', it.ai ? 'AI' : '', it.edit ? '編集' : ''].filter(Boolean).map(t => `<span class="tag">${t}</span>`).join('')
+                         + (it.canceled ? '<span class="tag cancel">取り消し</span>' : '');
+    const rows = hItems.map((it, i) => `<div class="hrow"><div><div class="hm"><b>${esc(hTime(it.at))}</b>${it.app ? `<span>${esc(it.app)}</span>` : ''}${it.audio_s ? `<span>${it.audio_s.toFixed(1)} 秒</span>` : ''}${tags(it)}</div>
+        <div class="ht ${it.text ? '' : 'dim'}">${esc(it.text || it.raw || (it.failed ? '(' + it.failed + ')' : '(文がありません)'))}</div></div>
+        <div class="hb"><button class="ibtn" data-hcopy="${i}" title="コピー">${ic('copy')}</button>${it.audio ? `<button class="ibtn" data-hplay="${i}" title="録音を再生">${ic('play')}</button>` : ''}<button class="ibtn" data-hdel="${i}" title="削除(ゴミ箱へ)">${ic('trash')}</button></div></div>`).join('');
+    el.innerHTML = `<div class="dhead"><h3>履歴</h3><span class="sp"></span><span class="dpill">${j.total} 件</span><button class="pill" id="d-hclear" ${j.total ? '' : 'disabled'}>すべて消去</button></div>
+      ${dv?.settings.privacy_mode ? '<div class="dnote">プライバシーモードの間は、履歴に残しません。</div>' : ''}
+      <input type="search" class="hsearch" id="d-hq" placeholder="検索(文・アプリ名)" value="${esc(hQ)}">
+      <div class="dcard">${rows || `<div class="dnote" style="padding:14px">${hQ ? '一致する文字起こしはありません。' : 'まだ履歴がありません。'}</div>`}</div>
+      ${hItems.length < j.total ? '<button class="dreset" id="d-hmore">さらに表示</button>' : ''}`;
+    const q = $('#d-hq'); let t = 0;
+    q.oninput = () => { clearTimeout(t); t = setTimeout(() => { hQ = q.value; dHistory().then(() => { const n = $('#d-hq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
+    el.querySelectorAll('[data-hcopy]').forEach(b => b.onclick = async () => {
+      const it = hItems[+b.dataset.hcopy]; try { await navigator.clipboard.writeText(it.text || it.raw || ''); toast('コピーしました'); } catch (e) { toast('コピーできませんでした', true); } });
+    el.querySelectorAll('[data-hplay]').forEach(b => b.onclick = () => {
+      const it = hItems[+b.dataset.hplay]; if (dAudio) dAudio.pause();
+      dAudio = new Audio(`/api/dictation/audio/${encodeURIComponent(it.rid)}.wav`); dAudio.play().catch(() => toast('再生できませんでした', true)); });
+    el.querySelectorAll('[data-hdel]').forEach(b => b.onclick = async () => {
+      const it = hItems[+b.dataset.hdel];
+      if (!await ask({title: 'この文字起こしを削除しますか？', body: '文と録音をゴミ箱へ移します(ゴミ箱から戻せます)。', yes: '削除', danger: true})) return;
+      const r = await post(`/api/dictation/history/${encodeURIComponent(it.rid)}/delete`, {}); if (r.ok) dHistory(); else toast('削除できませんでした', true); });
+    const c = $('#d-hclear');
+    if (c) c.onclick = async () => {
+      if (!await ask({title: '履歴をすべて消去しますか？', body: '音声入力の文と録音を、日付のフォルダごとゴミ箱へ移します(ゴミ箱から戻せます)。使った回数の数字は残ります。', yes: 'すべて消去', danger: true})) return;
+      const r = await post('/api/dictation/history/clear', {}); const x = await r.json().catch(() => ({}));
+      if (r.ok) { toast(`${x.n} 件をゴミ箱へ移しました`); dHistory(); } else toast('消去できませんでした', true); };
+    const mo = $('#d-hmore'); if (mo) mo.onclick = () => dHistory(true);
+  }
+
+  // --- ネットワーク ---
+  async function dNetCheck() {
+    const b = $('#d-netbtn'); if (b) { b.disabled = true; b.textContent = 'テスト中…'; }
+    const r = await post('/api/dictation/network', {}); const j = await r.json().catch(() => null);
+    if (dv && j) dv.net = j; dRenderNet();
+  }
+  function dRenderNet() {
+    const el = $('#dp-net'), n = dv?.net;
+    const ago = n ? Math.round((Date.now() - n.at) / 1000) : 0;
+    const key = !n ? '' : n.key?.ok ? '<span class="ok-t">有効</span>' : n.key?.error === 'no_key' ? '<span class="ng-t">未登録(⚙ の Soniox)</span>'
+      : `<span class="ng-t">確かめられませんでした${n.key?.status ? '(' + n.key.status + ')' : ''}</span>`;
+    el.innerHTML = `<div class="dhead"><h3>ネットワーク</h3></div>
+      <div class="dcard"><div style="padding:16px 18px">
+        <div class="t" style="font-weight:800">ネットワーク状態</div>
+        <div class="dnote" style="margin:4px 0 10px">Soniox(${esc(n?.host || '米国')})までの接続にかかる時間です。数値が低いほど早く返ります。100 ms 以下が理想です。接続の速さは音も鍵も送らずに測ります(鍵の確認だけ、鍵を Soniox に送ります)。</div>
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span class="netbig">${n?.tls_ms != null ? n.tls_ms + ' ms' : n ? '—' : '…'}</span>
+          <span class="dpill ${n?.ok ? 'on' : n ? 'rec' : ''}">${esc(n?.rating || '確認中')}</span><span class="sp" style="flex:1"></span>
+          <span class="dnote">${n ? (ago < 5 ? 'たった今' : ago + ' 秒前') : ''}</span><button class="pill" id="d-netbtn">今すぐ確認</button></div>
+        ${n && !n.ok ? `<div class="dwarn">サーバーに接続できません: ${esc(n.error || '')}</div>` : ''}
+        ${n ? `<div class="dnote">鍵: ${key}${n.key?.ms ? `(${n.key.ms} ms)` : ''}・TCP ${n.tcp_ms ?? '—'} ms</div>` : ''}
+      </div></div>
+      <div class="dsec">最近の音声入力</div><div class="dcard" id="d-netrecent"><div class="dnote" style="padding:12px 14px">読み込んでいます…</div></div>`;
+    $('#d-netbtn').onclick = dNetCheck;
+    fetch('/api/dictation/stats').then(r => r.json()).then(s => {
+      const L = s.latency || {}, f = (p) => p?.p50 != null ? `${Math.round(p.p50)} ms(p90 ${Math.round(p.p90)})` : '—';
+      $('#d-netrecent').innerHTML = row('net', 'Soniox への接続', `最近 ${L.dict_connect?.n || 0} 回の中央値`, `<b>${f(L.dict_connect)}</b>`)
+        + row('status', '話し終わりから確定まで', 'finalize から Soniox が確定を返すまで', `<b>${f(L.dict_final)}</b>`)
+        + row('clip', '離してから貼り終えるまで', '目標 p50 0.8 s・p90 1.5 s', `<b>${f(L.dict_total)}</b>`);
+    }).catch(() => {});
+  }
+
+  // --- ステータス ---
+  async function dStatus() {
+    const el = $('#dp-status'); if (!dv) return;
+    const s = await fetch('/api/dictation/stats').then(r => r.json()).catch(() => null);
+    const r = dv.ready || {}, ok = (b, y, n) => b ? `<span class="ok-t">${y}</span>` : `<span class="ng-t">${n}</span>`;
+    const keyRows = Object.entries({activate: '有効化', lock: 'ハンズフリーを有効化', handsfree: 'ハンズフリーで始める', paste_last: '最後の文字起こしを貼り付け', cancel: 'キャンセル'})
+      .flatMap(([a, t]) => (dv.bindings?.[a] || []).map(x => `<div>${t}: <b>${esc(a === 'lock' ? dv.labels.lock : (x.label || x.spec))}</b> ${x.ok ? '<span class="ok-t">登録済み</span>' : `<span class="ng-t">${esc(KEY_WHY[x.error] || x.error || '登録できません')}</span>`}${x.via === 'dynamic' ? '(録っている間だけ)' : ''}</div>`)).join('');
+    const box = (k, b) => b ? `<div class="stat"><div class="k">${k}</div><div class="v">${b.chars.toLocaleString()} 文字</div><div class="s">${b.takes} 回・音声 ${(b.audio_s / 60).toFixed(1)} 分・約 $${b.usd.toFixed(3)}${b.canceled ? `・取り消し ${b.canceled}` : ''}</div></div>` : '';
+    const L = s?.latency || {}, f = (p) => p?.p50 != null ? `${(p.p50 / 1000).toFixed(2)} s / ${(p.p90 / 1000).toFixed(2)} s` : '—';
+    el.innerHTML = `<div class="dhead"><h3>ステータス</h3><span class="sp"></span><button class="pill" id="d-restart">待ち受けをやり直す</button></div>
+      <div class="dcard">
+        ${row('power', '待ち受け', dv.running ? 'このアプリで待ち受けています。' : esc(dv.error || (dv.settings.enabled ? '止まっています' : '使わない設定です')), dv.running ? '<span class="dpill on">動作中</span>' : '<span class="dpill">停止中</span>')}
+        ${row('mic', 'マイク', 'システム設定 › プライバシーとセキュリティ › マイク', r.mic ? ok(r.mic === 'authorized', '許可済み', r.mic === 'undetermined' ? '初回に確認します' : '許可されていません') : '—')}
+        ${row('clip', 'アクセシビリティ', '⌘V と送信キーを送る・ディープコンテキスト・編集モードに要ります。無いときは文をクリップボードに入れます。', r.ax == null ? '—' : r.ax ? ok(true, '許可済み') : `${ok(false, '', '許可されていません')}<button class="pill" data-prompt="ax">許可を求める</button>`)}
+        ${dv.modifier_only ? row('toggle', '入力監視', 'Fn など修飾キーだけのキーを見張るのに要ります。', r.listen == null ? '—' : r.listen ? ok(true, '許可済み') : `${ok(false, '', '許可されていません')}<button class="pill" data-prompt="listen">許可を求める</button>`) : ''}
+        ${row('lock', 'Soniox の鍵', '⚙ の「会議の文字起こし(Soniox)」で登録します。', ok(dv.soniox_key, '登録済み', '未登録'))}
+        ${row('toggle', 'キーの登録', keyRows || '待ち受けている間に分かります。', '')}
+      </div>
+      <div class="dsec">使った量</div>
+      <div class="statgrid">${box('今日', s?.today)}${box('今月', s?.month)}${box('全体', s?.total)}</div>
+      <div class="dnote">費用の目安は Soniox の音声 1 時間 $0.12 で数えています(語彙の分は別)。数字は ~/.meeting-cue/dictation/metrics.jsonl から数えます。</div>
+      <div class="dsec">速さ(最近 100 回・中央値 / 遅い 1 割)</div>
+      <div class="dcard">
+        ${row('clip', '離してから貼り終えるまで', '目標: 中央値 0.8 s・遅い 1 割 1.5 s', `<b>${f(L.dict_total)}</b>`)}
+        ${row('net', 'Soniox への接続', '押してから。つながるまでの音は手元にためて先に送ります', `<b>${f(L.dict_connect)}</b>`)}
+        ${row('status', '話し終わりから確定まで', '', `<b>${f(L.dict_final)}</b>`)}
+      </div>
+      <div class="dnote">端末では <code>meetcue report dictation</code> でも見られます。</div>
+      <div class="dsec">ヘルパーの重さ(1 分ごと)</div>
+      ${dResource()}`;
+    el.querySelectorAll('[data-prompt]').forEach(b => b.onclick = async () => {
+      const x = await post('/api/dictation/prompt', {what: b.dataset.prompt});
+      toast(x.ok ? 'システム設定の確認を出しました。許可したあと「待ち受けをやり直す」を押してください' : '許可を求められませんでした', !x.ok); });
+    $('#d-restart').onclick = async () => { const x = await post('/api/dictation/restart', {}); if (x.ok) { dv = await x.json(); dRender(); toast('待ち受けをやり直しました'); setTimeout(dLoad, 1200); } };
+  }
+
+  // ヘルパー(キー・マイク・バー・ペット)の重さ。目標は Vault の Nagi_Pet_Brief §1(待っている間の CPU 0.1% 未満・ペットの分 +10 MB 以内)
+  function dResource() {
+    const x = dv.resource;
+    if (!x) return `<div class="dnote">${dv.running ? '待ち受けを始めてから 2 分ほどで出ます(最初の 1 分は起動の分なので数えません)。' : '待ち受けている間に分かります。'}</div>`;
+    const l = x.last, pct = (v) => `${(+v).toFixed(2)}%`;
+    return `<div class="dcard">
+        ${row('status', 'CPU', `最近 ${x.minutes} 分の平均 ${pct(x.cpu_avg)}・最大 ${pct(x.cpu_max)}。目標: 待っている間 0.1% 未満・動いている間 0.5% 未満`, `<b>${pct(l.cpu_pct)}</b>`)}
+        ${row('power', 'メモリ', `実際の使用量(アクティビティモニタの「メモリ」と同じ)。最近 ${x.minutes} 分の最大 ${x.mem_max != null ? x.mem_max.toFixed(1) + ' MB' : '—'}`, `<b>${l.footprint_mb != null ? l.footprint_mb.toFixed(1) + ' MB' : '—'}</b>`)}
+        ${row('toggle', '起こされた回数', 'ヘルパーが起こされた回数(少ないほど電池にやさしい)。待っている間は 1 分に数回です', `<b>${l.wakeups != null ? (l.wakeups / (l.interval_s || 60)).toFixed(2) + ' 回/秒' : '—'}</b>`)}
+      </div>`;
+  }
+
+  // 本体からの知らせ(状態・音の大きさ)
+  let dReload = 0;
+  handlers.dictation = (ev) => {
+    if (ev.kind === 'captured') { if (ev.spec) capAccept(ev.spec); return; }
+    if (ev.kind === 'capture') { if (dCap && ev.on === false && ev.ok === false) toast('OS のキーの見張りが使えないため、ブラウザが知らせるキーだけで決めます(Fn は ⋮ から)'); return; }
+    if (ev.kind === 'level') { const i = $('#d-meter-i'); if (i) i.style.width = Math.max(0, Math.min(100, (ev.db + 60) / 60 * 100)) + '%'; return; }
+    if (ev.kind === 'meter') { if (dv) { dv.meter = {on: !!ev.on, error: ev.error}; const m = $('#d-meter'); if (m) m.textContent = ev.on ? 'テストを止める' : 'マイクをテスト'; if (!ev.on) { const i = $('#d-meter-i'); if (i) i.style.width = '0'; } } return; }
+    $('#dictbtn').classList.toggle('rec', ev.live?.state === 'recording');
+    if (!$('#dictdlg').classList.contains('open')) return;
+    clearTimeout(dReload); dReload = setTimeout(() => { if (!dCap) dLoad(); if (ev.kind === 'take' && dPage === 'history') dHistory(); }, 300);
+  };
+
+  // 音声入力の画面を直接開く入口(http://127.0.0.1:<ポート>/#dictation)
+  if (location.hash === '#dictation') setTimeout(() => dOpen(), 200);
 
   connect(); loadList(); renderHead();
 })();

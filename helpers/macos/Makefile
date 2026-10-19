@@ -2,7 +2,7 @@
 SWIFTC ?= swiftc
 FLAGS  ?= -parse-as-library -O
 
-all: stt_helper/stt-helper tap_helper/tap-helper hotkey_helper/hotkey-helper overlay_helper/overlay-helper mix_helper/mix-helper
+all: stt_helper/stt-helper tap_helper/tap-helper hotkey_helper/hotkey-helper overlay_helper/overlay-helper mix_helper/mix-helper dictation_helper/dictation-helper
 
 stt_helper/stt-helper: stt_helper/main.swift
 	$(SWIFTC) $(FLAGS) $< -o $@
@@ -19,7 +19,10 @@ overlay_helper/overlay-helper: overlay_helper/main.swift
 mix_helper/mix-helper: mix_helper/main.swift
 	$(SWIFTC) $(FLAGS) $< -o $@
 
+dictation_helper/dictation-helper: dictation_helper/main.swift
+	$(SWIFTC) $(FLAGS) $< -o $@
+
 clean:
-	rm -f stt_helper/stt-helper tap_helper/tap-helper hotkey_helper/hotkey-helper overlay_helper/overlay-helper mix_helper/mix-helper
+	rm -f stt_helper/stt-helper tap_helper/tap-helper hotkey_helper/hotkey-helper overlay_helper/overlay-helper mix_helper/mix-helper dictation_helper/dictation-helper
 
 .PHONY: all clean

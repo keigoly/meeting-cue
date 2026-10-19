@@ -52,6 +52,28 @@ def test_packages_missing_aborts_with_a_reason():
     assert p.stdout == b""   # stdout は契約のイベントだけ(abort は stderr)
 
 
+def test_pcm_out_emits_s16le_chunks_of_100ms(monkeypatch):
+    """--pcm-out(FR-2b・2026-10-18): 認識に渡すのと同じ音を s16le にして 0.1 s(1,600 標本)ずつ出し、止めるときに残りを出す。"""
+    np = pytest.importorskip("numpy")   # 専用環境の numpy(本体の試験の python には無いことが多い)
+    import base64
+    spec = importlib.util.spec_from_file_location("win_stt_helper", HELPER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    got = []
+    monkeypatch.setattr(mod, "emit", got.append)
+    out = mod.PcmOut()
+    out.add(np.full(1000, 0.5, dtype=np.float32))
+    assert got == []                                   # 0.1 s に満たない間は出さない
+    out.add(np.concatenate([np.full(1500, -1.2, dtype=np.float32), np.zeros(1000, dtype=np.float32)]))
+    assert [g["seq"] for g in got] == [1, 2] and all(g["type"] == "audio" for g in got)
+    first = np.frombuffer(base64.b64decode(got[0]["pcm"]), dtype="<i2")
+    assert len(first) == 1600 and first[0] == 16383 and first[1000] == -32767   # 0.5 と、はみ出した -1.2 は -1.0 に
+    out.flush()
+    assert len(np.frombuffer(base64.b64decode(got[-1]["pcm"]), dtype="<i2")) == 3500 - 3200 and got[-1]["seq"] == 3
+    out.flush()
+    assert len(got) == 3                                # 残りが無ければ何も出さない
+
+
 def _real_helper_ready() -> bool:
     cfg = Config()
     model = cfg.app_dir / "models" / "faster-whisper-large-v3-turbo" / "model.bin"

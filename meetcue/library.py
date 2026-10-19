@@ -4,6 +4,9 @@
 セッション id はディレクトリ名。正規表現で検査し、置き場の外は読まない。
 置き場(root)は 1 つでも、[Mac の sessions, Google Drive の Meeting Cue!, …] の並びでもよい(2026-09-26・
 右クリック「Google Drive に移動…」で移した記録も一覧に出す)。同じ id が複数にあれば先頭(Mac)を使う。
+文字起こしは、録音後にし直した文(transcript.redo.jsonl・meta.json の transcript = "redo"・FR-9b)があればそれを出す。
+質問の判定と回答候補は会議中の発言(transcript.jsonl の rid)に付いているので、回答タブは会議中の発言から作り、
+し直した行には時刻の重なる会議中の発言の判定(jrid)を付ける。
 """
 from __future__ import annotations
 
@@ -16,6 +19,8 @@ import time
 from pathlib import Path
 
 SID_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{8}$")
+LIVE_FILE = "transcript.jsonl"          # 会議中の文字起こし(消さない)
+REDO_FILE = "transcript.redo.jsonl"     # 録音後にし直した文(FR-9b・meetcue/redo.py が書く)
 DEFAULT_TITLE = "無題"
 DRIVE_FOLDER = "Meeting Cue!"               # Google Drive のマイドライブの中の置き場
 MY_DRIVE_NAMES = ("マイドライブ", "My Drive")   # Google Drive for desktop の表示言語で名前が変わる
@@ -75,6 +80,17 @@ def _meta(d: Path) -> dict:
 AUDIO_RE = re.compile(r"^(mic|system|room)(-\d+)?\.m4a$")
 
 
+def transcript_source(d: Path, meta: dict | None = None) -> str:
+    """表示・サマリ・書き出しに使う文字起こし: "redo"(録音後にし直した文があり、meta.json で選んでいる)か "live"。"""
+    m = _meta(d) if meta is None else meta
+    return "redo" if m.get("transcript") == "redo" and (Path(d) / REDO_FILE).exists() else "live"
+
+
+def transcript_rows(d: Path, meta: dict | None = None) -> list[dict]:
+    """表示・サマリ・書き出しに使う文字起こしの行(transcript_source が選んだ方)。"""
+    return _jsonl(Path(d) / (REDO_FILE if transcript_source(d, meta) == "redo" else LIVE_FILE))
+
+
 def _audio(d: Path) -> dict:
     """録音した音声: {channel: {"url": …, "t0_ms": 録音の頭の壁時計}}。t0_ms はマイクとスピーカーの頭合わせに使う。"""
     meta = _meta(d).get("audio") or {}
@@ -114,13 +130,15 @@ def summary_row(d: Path, where: str = "mac") -> dict:
         ended_est = int(mp.stat().st_mtime * 1000) if mp.exists() else started
     else:
         ended_est = ended
-    tr = d / "transcript.jsonl"
+    src = transcript_source(d, m)
+    tr = d / (REDO_FILE if src == "redo" else LIVE_FILE)
     n_utt = sum(1 for _ in tr.open(encoding="utf-8")) if tr.exists() else 0
     n_q = sum(1 for r in _jsonl(d / "judgments.jsonl") if r.get("trigger"))
     return {"id": d.name, "title": m.get("title") or DEFAULT_TITLE, "started_ms": started, "ended_ms": ended,
             "duration_s": round(((ended_est or 0) - (started or 0)) / 1000, 1) if started else None,
             "mode": m.get("mode"), "privacy": m.get("privacy"), "sources": m.get("sources", []),
-            "utterances": n_utt, "questions": n_q, "audio": _audio(d), "where": where}
+            "utterances": n_utt, "questions": n_q, "audio": _audio(d), "where": where, "transcript_source": src,
+            "stt": m.get("stt")}   # 会議の文字起こしを Soniox で行った記録(FR-2b)。端末内なら None
 
 
 def list_sessions(root, limit: int = 200) -> list[dict]:
@@ -189,12 +207,53 @@ def session_detail(root, sid: str) -> dict | None:
             ranked = [items[i - 1] | {"star": n < 3} for n, i in enumerate(order) if 0 < i <= len(items)]
             rest = [it | {"star": False} for j, it in enumerate(items, 1) if j not in order]
             e[key] = ranked + rest
-    transcript = [{"rid": r["rid"], "channel": r["channel"], "text": r["text"],
-                   "start_seconds": r.get("start_seconds"), "end_seconds": r.get("end_seconds"),
-                   "at_s": round((r.get("t_ms", t0) - t0) / 1000, 1)} for r in _jsonl(d / "transcript.jsonl")]
+    def utt(r: dict) -> dict:
+        return {"rid": r["rid"], "channel": r["channel"], "text": r["text"],
+                "start_seconds": r.get("start_seconds"), "end_seconds": r.get("end_seconds"),
+                "at_s": round((r.get("t_ms", t0) - t0) / 1000, 1)}
+
+    live = [utt(r) for r in _jsonl(d / LIVE_FILE)]
+    # 回答タブ: 質問と判定した・回答候補 / 深掘りがある会議中の発言(見出しは会議中の文。候補はその文に対して作った)
+    questions = [u for u in live if (judg.get(u["rid"]) or {}).get("trigger") or (cues.get(u["rid"]) or {}).get("answers")
+                 or (cues.get(u["rid"]) or {}).get("digs")]
+    if row["transcript_source"] == "redo":
+        transcript = [utt(r) for r in _jsonl(d / REDO_FILE)]
+        _attach_judgments(transcript, live, judg)
+    else:
+        transcript = live
     sm = d / "summary.md"
-    return {**row, "transcript": transcript, "judgments": judg, "cues": cues, "plans": plans, "glossary": glossary,
-            "summary": sm.read_text(encoding="utf-8") if sm.exists() else None}
+    return {**row, "transcript": transcript, "questions": questions, "judgments": judg, "cues": cues, "plans": plans,
+            "glossary": glossary, "summary": sm.read_text(encoding="utf-8") if sm.exists() else None}
+
+
+def _attach_judgments(redo_rows: list[dict], live: list[dict], judg: dict, near_s: float = 2.0) -> None:
+    """し直した行に、時刻の重なる会議中の発言の判定を付ける(jrid)。文字起こしの質問の印を残すため。
+    同じチャネルで重なりが最も長い行へ。重ならなければ始まりが near_s 秒以内で最も近い行へ。
+    1 行に複数が当たるときは、質問(trigger)の判定を優先する。時刻はどちらも同じ録音の頭から(同じトラック)。"""
+    by_ch: dict[str, list[dict]] = {}
+    for r in redo_rows:
+        if r.get("start_seconds") is not None:
+            by_ch.setdefault(r["channel"], []).append(r)
+    for u in live:
+        j = judg.get(u["rid"])
+        s = u.get("start_seconds")
+        if not j or s is None:
+            continue
+        e = u.get("end_seconds") if u.get("end_seconds") is not None else s
+        best, best_key = None, None
+        for r in by_ch.get(u["channel"], []):
+            rs, re_ = r["start_seconds"], (r.get("end_seconds") if r.get("end_seconds") is not None else r["start_seconds"])
+            overlap = min(e, re_) - max(s, rs)
+            key = (1, overlap) if overlap > 0 else (0, -abs(rs - s))
+            if overlap <= 0 and abs(rs - s) > near_s:
+                continue
+            if best_key is None or key > best_key:
+                best, best_key = r, key
+        if best is None:
+            continue
+        cur = judg.get(best.get("jrid") or "")
+        if cur is None or (j.get("trigger") and not cur.get("trigger")):
+            best["jrid"] = u["rid"]
 
 
 def set_title(root, sid: str, title: str) -> bool:

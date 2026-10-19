@@ -6,7 +6,7 @@ Windows 版のヘルパーの置き場。Mac の `helpers/macos/`(Swift)と同�
 
 | ディレクトリ | 役割 | 状態 |
 |---|---|---|
-| `stt_helper/` | 音声認識(faster-whisper large-v3-turbo・CUDA + Silero VAD)と取り込み(PyAudioWPatch で WASAPI のマイク / 出力機器のループバック)。契約は docs/REQUIREMENTS.md FR-2(stdout JSONL `ready` / `partial` / `final` / `bye`・stdin `finalize` / `quit`・stderr の診断と `phase=level`)。`--record` で m4a を保存 | 2026-09-27 ファイル・マイク・ループバックまで |
+| `stt_helper/` | 音声認識(faster-whisper large-v3-turbo・CUDA + Silero VAD)と取り込み(PyAudioWPatch で WASAPI のマイク / 出力機器のループバック)。契約は docs/REQUIREMENTS.md FR-2(stdout JSONL `ready` / `partial` / `final` / `bye`・stdin `finalize` / `quit`・stderr の診断と `phase=level`)。`--record` で m4a を保存。`--redo <録音>` は録音後のし直し(丸ごと認識して行ごとの `final` を出して終わる・FR-9b)。`--pcm-out` は会議の文字起こしを Soniox で行うとき(FR-2b): 認識に渡すのと同じ音を 0.1 s ごとに `{"type":"audio","seq":n,"pcm":<base64>}` で stdout にも出す(端末内の認識・録音・音量は続ける) | 2026-09-27 ファイル・マイク・ループバックまで・2026-10-16 `--redo`・2026-10-18 `--pcm-out`(実機で確認: ファイルとループバック) |
 | `window_helper/` | 本体の画面を pywebview(WebView2)のウィンドウに出す(Mac の overlay_helper に当たる)。アプリ用の仮想環境 `~/.meeting-cue/app-venv` で動く(`requirements.txt`)。画面の `window.webkit.messageHandlers.meetcue.postMessage` の写しを差し込み、`cmd` top / main / caption を受ける。メニューは無し(2026-09-28)。アイコンは AppUserModelID + WM_SETICON(`--stamp-shortcut <.lnk>` でスタートメニューのショートカットにも同じ ID を書く・setup.ps1 が使う)、タイトルバーは画面の背景の明るさに合わせて DWM でダーク / ライト。stdin `top on|off` / `caption` / `quit` | 2026-09-27 |
 | `mix_helper/` | 書き出しで 2 本の音声を 1 本の m4a に重ねる(Mac の mix-helper と同じ約束・PyAV)。STT の仮想環境で動く | 2026-09-27 |
 | (次の版)トレイ・ホットキー | タスクトレイ常駐・システム全体のホットキー・字幕の固定(クリックを下へ通す) | 未着手 |
@@ -27,6 +27,7 @@ Windows 版のヘルパーの置き場。Mac の `helpers/macos/`(Swift)と同�
 - VAD は faster-whisper の内部(`faster_whisper.vad.get_vad_model().session`)を直接呼ぶ。faster-whisper の版を上げたら、1 窓ずつの値が一括処理と一致するかを確かめ直す。
 - **stdin の `finalize` は、声が続いていれば次の短い切れ目(無音 0.10 s)まで待ってから閉じる**(最長 1.5 s・診断 `phase=finalize` の `how` = `now` / `gap` / `deadline` と `wait_ms`)。Whisper は語の終わりを先回りして書くため、話している最中でも partial の文字が止まり、セグメンターが間と取り違えて `finalize` を送る(2026-09-27 合成会議: 「…よくわかりま」の途中で切れ、残りから「わかりました。」が重複)。上限はセグメンターの `safety_ms`(最短 2.5 s)に収まる値。実測: long では 4 回とも文の終わりで閉じた(待ち 0.3〜1.7 s)。1.5 s 以上切れ目の無い話の途中では期限で閉じ、語の途中で切れる(meeting で 4 回中 2 回)。改善案: 期限のときは直近 1 s で最も静かな窓で切る(実マイクの計測の後に判断)。
 - **止めるとき(`quit`)は録音を認識より先に閉じる**(2026-10-08)。本体が録音中に 14 分 24 秒止まり(原因は未特定・本体の `loop_stall` で次に見える)、読まれない間に認識が溜まり、停止で 3 s 後に強制終了されて m4a の目次(`moov`)が書かれず、録音が丸ごと聞けなくなった(`mdat` の長さ 0 のまま)。今は `quit` を受けたら先に `record_done` まで済ませてから、閉じた区間を従来どおり認識する(本体の待ちを過ぎれば止められるが、録音は閉じ終えている)。溜まった区間を認識している途中に `quit` が届いたら(区間ごとに確かめる)、録音を閉じて残りの認識は飛ばす(`phase=quit_skipped` の `segments`)。本体の `STTHelper.stop` も、`record_start` の後で `record_done` が来ていなければ最長 15 s 待つ。再現: 300 s の音声を 4 倍速で流し、本体のループを 65 s 止め、戻って 2 s で止める → 直す前は強制終了で `mdat(0)`・直した後は 273.9 s 聞ける。
+- **録音後のし直し `--redo`**(2026-10-16・FR-9b): VAD で無音を除いてつなぎ(faster-whisper の `vad_filter`・既定の VAD)、beam 5・前の文に寄せない・語ごとの時刻で丸ごと認識する。区間は除いた無音をまたぐことがあり、区間の時刻は前の声の側に付く(実会議で相手の発言が 72 s 早く付き、2 本を時刻で並べると話の順が崩れた)ので、語と語の間が `--redo-gap`(既定 1.5 s・本体は config の `[redo] gap_s` を渡す)以上なら行を分け、行の時刻を語から取る(`redo_lines`)。出すのは `ready`(`audio_s`)→ 行ごとの `final` → `bye`(partial は無い)。stdin の `quit` は区間の合間に見る(30 s の窓の認識は終わるまで待つ)。診断: `redo_segment`(区間ごとの `avg_logprob` / `no_speech_prob` / `compression_ratio` / `temperature`)・`redo_done`(`speech_s`・`ms`)・`redo_cancelled`・失敗は `abort` の `redo_failed`(終了コード 8)・録音が読めなければ `file_open_failed`(4・モデルを読む前に終える)。実測(18.7 分 2 本・RTX 4060 Ti): 認識 27.6 + 14.6 s・GPU +2.5 GB(`spikes/REDO_TRANSCRIBE.md`)。語の時刻の揃い方で、まれに語の途中で行が分かれる(文字は失われない)。短い返事がまばらな窓は temperature=0 の認識が目安(`compression_ratio` / `avg_logprob`)に届かず、0.2〜1.0 の後退(乱数)で認識されるので、その窓の文は毎回変わり、まれに繰り返しが暴走する(実会議の最後の 30 s・6 回に 1 回「はい、」× 20)。縮めるのは本体(`meetcue/redo.py` の `collapse_loops`)で、ヘルパーは出したままにする。
 - 本体を Windows の既定の文字コード(cp932)で動かすと、ターミナル表示と一部の試験が落ちる(本体側の既存の問題・CI は `PYTHONUTF8=1` で回している)。Windows の起動の入口では python を UTF-8 モード(`-X utf8`)で起動する(Step 3)。
 
 ## 3. バグ修正時の手順(user CLAUDE.md の Step 1〜3)
@@ -34,9 +35,10 @@ Windows 版のヘルパーの置き場。Mac の `helpers/macos/`(Swift)と同�
 1. **見える化**: ヘルパーを単体で動かし、stdout(契約)と stderr(診断)を分けて見る。
    `~/.meeting-cue/stt-venv/Scripts/python.exe helpers/windows/stt_helper/stt_helper.py --file tests/fixtures/wav/meeting_ja.wav --channel system`
    取り込みは `--list-devices` で機器を見て、`--loopback all --loopback-device <名前>` / `--mic-device <名前>` で開く(`capture_start` に機器・Hz・ch)。スピーカーを鳴らさずに試すときは、音の出ない出力機器(仮想のオーディオドライバなど)に音声を流してそのループバックを取る。
+   録音後のし直しは `~/.meeting-cue/stt-venv/Scripts/python.exe helpers/windows/stt_helper/stt_helper.py --redo <記録>\audio\mic.m4a --channel mic`(stdout に行・stderr に区間ごとの確率)。本体からは `python -m meetcue.cli redo <記録>`(metrics に `redo_transcribe`)。
    本体から動かしたときは、セッションの `metrics.jsonl` の `helper_*`(`asset_ready` の読み込み ms・`abort` の理由・`results_done` の件数)と `phase=segment` を突き合わせる。精度と遅れは `spikes/spike_win_stt_score.py` の物差しで比べる。
 2. **最小改修**: 区切りは `--min-silence` / `--max-speech` / `--partial-every`、認識は `Streamer.recognize` だけを直す。契約(出す JSON の形・stdin のコマンド)は変えない(Mac と共通)。
-3. **周辺整合**: 引数を足したら `meetcue/pipeline.py` の `Source.argv`(Windows の分岐)・`tests/test_windows_stt_helper.py`・このファイル・REQUIREMENTS FR-12 を合わせる。パッケージの版を変えたら `requirements.txt` と §7。
+3. **周辺整合**: 引数を足したら `meetcue/pipeline.py` の `Source.argv`(Windows の分岐)・`meetcue/redo.py` の `helper_argv`(`--redo`)・`meetcue/soniox_stt.py`(`--pcm-out` の `audio` を読む側・Mac の stt-helper / tap-helper も同じ形)・`tests/test_windows_stt_helper.py`・このファイル・REQUIREMENTS FR-12 を合わせる。パッケージの版を変えたら `requirements.txt` と §7。
 
 ## 4. 関連ドキュメント
 

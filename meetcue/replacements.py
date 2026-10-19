@@ -64,8 +64,10 @@ def _key(s: str) -> str:
 
 
 class Replacer:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, escapes: bool = False):
+        """escapes: 置き換え後の `\\n` を改行・`\\t` をタブにする(音声入力だけの置換 = 定型文・FR-14b)。"""
         self.path = Path(path)
+        self.escapes = escapes
         self._mtime: float | None = None
         self._pat: re.Pattern | None = None
         self._table: dict[str, str] = {}
@@ -84,6 +86,8 @@ class Replacer:
         self._mtime = st.st_mtime
         self.rules, self.ignored = parse(self.path.read_text(encoding="utf-8"))
         self._pat, self._table = compile_rules(self.rules)
+        if self.escapes:
+            self._table = {k: v.replace("\\n", "\n").replace("\\t", "\t") for k, v in self._table.items()}
 
     def apply(self, text: str) -> str:
         self._reload()

@@ -19,7 +19,8 @@ from pathlib import Path
 DEFAULT_ENV = Path.home() / ".secrets" / "meeting-cue.env"
 KEYCHAIN_SERVICE = os.environ.get("MEETCUE_KEYCHAIN_SERVICE") or "local.meetcue"   # 試験では別の名前にする
 PROVIDERS = {"openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
-             "obsidian": "OBSIDIAN_API_KEY"}   # obsidian = Obsidian の Local REST API のキー(MCP 連携・FR-5b・2026-10-08)
+             "obsidian": "OBSIDIAN_API_KEY",   # obsidian = Obsidian の Local REST API のキー(MCP 連携・FR-5b・2026-10-08)
+             "soniox": "SONIOX_API_KEY"}       # soniox = Soniox の音声認識(FR-2b・FR-14・2026-10-17)
 KEY_RE = re.compile(r"^[A-Za-z0-9_\-.]{16,400}$")   # 各社のキーの文字(空白・引用符は入らない)
 
 

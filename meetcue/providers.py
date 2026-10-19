@@ -3,6 +3,7 @@
 - OpenRouter: GET /api/v1/key(キーの情報)
 - Anthropic: GET /v1/models(x-api-key + anthropic-version)
 - OpenAI: GET /v1/models(Bearer)
+- Soniox: GET /v1/models(Bearer・会議の文字起こし FR-2b・2026-10-18 に確認: 正しいキーで 200・違うキーで 401)
 stdlib の urllib だけ(依存を増やさない)。キーは送り先の 1 社にだけ送り、結果にもログにも出さない。
 生成そのものは cues/llm.py(OpenRouter / Anthropic / OpenAI・第 2 段 2026-09-26)。
 """
@@ -13,12 +14,13 @@ import time
 import urllib.error
 import urllib.request
 
-LABELS = {"openrouter": "OpenRouter", "anthropic": "Anthropic", "openai": "OpenAI"}
+LABELS = {"openrouter": "OpenRouter", "anthropic": "Anthropic", "openai": "OpenAI", "soniox": "Soniox"}
 GENERATION_READY = {"openrouter", "anthropic", "openai"}   # 生成に使える接続先(2026-09-26 第 2 段で 3 つとも)
 KEY_PAGES = {                       # 「キーを取得」で開く各社のページ(画面から開けるのはここだけ)
     "openrouter": "https://openrouter.ai/keys",
     "anthropic": "https://console.anthropic.com/settings/keys",
     "openai": "https://platform.openai.com/api-keys",
+    "soniox": "https://console.soniox.com/",
     "drive": "https://www.google.com/drive/download/",
     # Obsidian 連携(FR-5b・2026-10-08): 本体の入手先・Local REST API プラグイン(Obsidian のプラグイン画面を開く)・uv
     "obsidian_app": "https://obsidian.md/download",
@@ -35,6 +37,8 @@ def _request(provider: str, key: str) -> urllib.request.Request:
                                       headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
     if provider == "openai":
         return urllib.request.Request("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {key}"})
+    if provider == "soniox":
+        return urllib.request.Request("https://api.soniox.com/v1/models", headers={"Authorization": f"Bearer {key}"})
     raise ValueError("unknown provider")
 
 

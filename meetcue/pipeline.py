@@ -113,11 +113,16 @@ _UNSET = object()
 class Pipeline:
     def __init__(self, cfg: Config, session: Session, ui, sources: list[Source], *,
                  api_key: str | None, llm_enabled: bool = True, jev_enabled: bool = True, model: str | None = None,
-                 target: llm.Target | None = None, jev_api_key=_UNSET):
+                 target: llm.Target | None = None, jev_api_key=_UNSET, stt: str = "local", soniox_key: str | None = None):
         self.cfg = cfg
         self.session = session
         self.ui = ui
         self.sources = sources
+        # 会議の文字起こし(FR-2b・2026-10-18): soniox = 音を Soniox へ送る(会議ごとに選ぶ・LOCAL では使わない)。
+        # 届かないチャネルは端末内の認識に切り替わる(meetcue.soniox_stt)
+        self.stt = "soniox" if stt == "soniox" and cfg.privacy != "local" else "local"
+        self.soniox_key = soniox_key if self.stt == "soniox" else None
+        self._stt_fallback: dict[str, str] = {}   # 端末内に切り替わったチャネル → 理由
         self.api_key = api_key if cfg.privacy != "local" else None
         self.llm_enabled = llm_enabled and self.api_key is not None
         # 質問の判定(2026-09-26 設定画面): オフなら判定そのものをしない(回答タブは動かず、選ぶ係の ★ も付けない)。
@@ -328,10 +333,20 @@ class Pipeline:
         self._stop_ev = asyncio.Event()
         self._set_state(plan_auto=self.plan_auto, glossary_auto=self.gloss_auto)
         self._set_state(mode=self.cfg.mode, privacy=self.cfg.privacy, paused=False,
-                        session=self.session.dir.name, llm=self.model if self.llm_enabled else "off")
+                        session=self.session.dir.name, llm=self.model if self.llm_enabled else "off",
+                        stt=self.stt, stt_fallback={})
         await self._spawn_aux()
         seg_tasks = []
         rec_dir = getattr(self.session, "dir", None)
+        terms: list[str] = []
+        if self.stt == "soniox":
+            from .dictation import load_terms
+            terms = load_terms(self.cfg.soniox.terms_file)
+            if hasattr(self.session, "meta"):
+                from . import soniox
+                self.session.meta["stt"] = {"engine": "soniox", "model": soniox.MODEL, "region": self.cfg.soniox.region,
+                                            "terms": len(terms), "fallback": {}}
+                self.session.write_meta()
         for src in self.sources:
             argv = src.argv(self.cfg)
             if self.cfg.record_audio and rec_dir is not None:   # 録音(U2): 文字起こしと同じ音声を m4a に
@@ -345,15 +360,24 @@ class Pipeline:
             if not Path(argv[0]).exists():
                 self.ui.error(f"helper が無い: {argv[0]}({helper_hint()})")
                 continue
-            helper = STTHelper(argv, channel=src.channel, on_diag=lambda d, c=src.channel: self._diag(c, d))
+            seg_cfg = self._segmenter_config(src)
+            if self.stt == "soniox":   # 取り込みと録音はヘルパーのまま。同じ音を受け取って Soniox へ流す
+                from .soniox_stt import SonioxSTT
+                helper = SonioxSTT(argv + ["--pcm-out"], channel=src.channel, api_key=self.soniox_key,
+                                   on_diag=lambda d, c=src.channel: self._diag(c, d), metrics=self.m, ui=self.ui,
+                                   terms=terms, language_hints=self.cfg.soniox.language_hints,
+                                   region=self.cfg.soniox.region, on_engine=self._stt_engine,
+                                   fin_deadline_s=max(0.3, seg_cfg.safety_ms / 1000 - 0.5))   # セグメンターより先に final
+            else:
+                helper = STTHelper(argv, channel=src.channel, on_diag=lambda d, c=src.channel: self._diag(c, d))
             await helper.start()
             self._helpers.append(helper)
-            seg = Segmenter(helper, src.channel, self._segmenter_config(src), self.m, on_partial=self._partial)
+            seg = Segmenter(helper, src.channel, seg_cfg, self.m, on_partial=self._partial)
             seg_tasks.append(asyncio.create_task(seg.run(self._queue)))
         if not self._helpers:
             return
         self.ui.status(f"sources={[s.kind + ':' + s.channel for s in self.sources]} mode={self.cfg.mode} "
-                       f"privacy={self.cfg.privacy} llm={'on:' + self.target.label if self.llm_enabled else 'off'} "
+                       f"privacy={self.cfg.privacy} stt={self.stt} llm={'on:' + self.target.label if self.llm_enabled else 'off'} "
                        f"jev={('on' if self.jev_key else 'off(heuristic)') if self.jev_enabled else 'off(no detection)'} "
                        f"index={'on' if self.index else 'off'}")
         consumer = asyncio.create_task(self._consume())
@@ -463,6 +487,15 @@ class Pipeline:
         import json as _json
         (Path(d) / "levels.json").write_text(
             _json.dumps({"step_s": 0.1, "channels": self._level_series}, separators=(",", ":")), encoding="utf-8")
+
+    def _stt_engine(self, channel: str, engine: str, reason: str | None) -> None:
+        """Soniox のチャネルが端末内の認識に切り替わった(FR-2b)。記録(meta)と画面の印に残す。"""
+        meta = getattr(self.session, "meta", None)
+        if meta is not None and isinstance(meta.get("stt"), dict):
+            meta["stt"].setdefault("fallback", {})[channel] = reason
+            self.session.write_meta()
+        self._stt_fallback[channel] = reason or ""
+        self._set_state(stt_fallback=dict(self._stt_fallback))
 
     def _diag(self, channel: str, d: dict) -> None:
         phase = d.get("phase") or "diag"

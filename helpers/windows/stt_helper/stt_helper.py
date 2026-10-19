@@ -15,11 +15,16 @@ macOS の stt_helper(helpers/macos/stt_helper/main.swift)と同じ契約(docs/RE
 
 引数: [--locale ja-JP] [--channel mic] [--file <audio> | --loopback all | (なし = マイク)] [--pace 1.0] [--record <out.m4a>]
       [--loopback-device <名前の一部>] [--mic-device <名前の一部>] [--model <dir>] [--device cuda] [--compute-type float16]
-      [--partial-every 0.3] [--min-silence 0.3] [--max-speech 20] [--list-devices]
+      [--partial-every 0.3] [--min-silence 0.3] [--max-speech 20] [--pcm-out] [--list-devices]
   取り込み(REQUIREMENTS §7): PyAudioWPatch で WASAPI から。--loopback は出力機器のループバック(再生中の音をまとめて・
   Mac の tap-all と同じ範囲。会議アプリだけを選ぶことはできない)、無ければマイク。機器は既定か、名前の一部で選ぶ。
   --file はテスト用。音声ファイル(WAV / AIFF / m4a など)を 16 kHz モノラルにして --pace 倍速(0 = 待たない)で供給し、
   終わったら自動で終わる。
+  --redo <音声> は録音後のし直し(REQUIREMENTS FR-9b): 録音 1 本を丸ごと認識し、語の時刻で分けた行を final で出して終わる
+  (partial は出さない・stdin の quit で区間の合間に止める・診断は redo_segment / redo_done)。--redo-gap は行を分ける語の間(秒)。
+  --pcm-out は会議の文字起こしを Soniox で行うとき(REQUIREMENTS FR-2b・2026-10-18): 認識に渡すのと同じ音(16 kHz モノラル
+  s16le)を約 0.1 s ごとに {"type":"audio","seq":n,"pcm":<base64>} で stdout にも出す(音声入力の dictation_helper と同じ形)。
+  端末内の認識・録音・音量はそのまま続ける(本体の meetcue.soniox_stt が、Soniox に届かないときに切り替えて使う)。
   --setup-model はセットアップ専用(モデルを Hugging Face から取る。会議中には使わない)。--self-test は読み込みの確認。
 専用の仮想環境(packaging/windows/setup.ps1 が作る ~/.meeting-cue/stt-venv)の python で動かす。本体(meetcue)は import しない。
 """
@@ -114,6 +119,35 @@ class LevelMeter:
     def _db(self, v: float) -> float:
         import math
         return max(-90.0, round(20 * math.log10(v), 1)) if v > 0 else -90.0
+
+
+class PcmOut:
+    """--pcm-out: 認識に渡すのと同じ音を s16le にして、約 0.1 s ずつ stdout のイベントで出す(FR-2b)。"""
+
+    CHUNK = SR // 10
+
+    def __init__(self):
+        import numpy as np
+        self.np = np
+        self.buf = np.zeros(0, dtype=np.int16)
+        self.seq = 0
+
+    def add(self, x) -> None:
+        np = self.np
+        self.buf = np.concatenate([self.buf, (np.clip(x, -1.0, 1.0) * 32767).astype(np.int16)])
+        while len(self.buf) >= self.CHUNK:
+            self._emit(self.buf[:self.CHUNK])
+            self.buf = self.buf[self.CHUNK:]
+
+    def flush(self) -> None:
+        if len(self.buf):
+            self._emit(self.buf)
+            self.buf = self.buf[:0]
+
+    def _emit(self, part) -> None:
+        import base64
+        self.seq += 1
+        emit({"type": "audio", "seq": self.seq, "pcm": base64.b64encode(part.astype("<i2").tobytes()).decode("ascii")})
 
 
 class Recorder(threading.Thread):
@@ -493,6 +527,73 @@ def read_commands(cq: queue.Queue) -> None:
     # stdin の EOF では止めない(起動側が閉じることがある)。停止は quit / Ctrl+C
 
 
+def redo_lines(seg, gap: float) -> list[tuple[float, float, str]]:
+    """認識の区間を行に分ける: 語と語の間が gap 秒以上のところで切り、行の時刻は語から取る(語の時刻が無ければ区間のまま)。
+
+    VAD で無音を除いてつないだ音声では、1 つの区間が除いた無音をまたぐことがあり、区間の時刻は前の声の側に付く
+    (2026-10-16 実会議: 相手の発言が実際より 72 s 早く付き、2 本を時刻で並べると話の順が崩れた)。語の時刻は元の時間軸に
+    戻るので、語の間で分ければ行の時刻が合う(CER 34.4% → 18.6%・分ける間 0.8〜3.0 s で差なし・spikes/REDO_TRANSCRIBE.md)。"""
+    words = list(seg.words or [])
+    if not words:
+        text = seg.text.strip()
+        return [(seg.start, seg.end, text)] if text else []
+    groups, cur = [], [words[0]]
+    for w in words[1:]:
+        if w.start - cur[-1].end >= gap:
+            groups.append(cur)
+            cur = [w]
+        else:
+            cur.append(w)
+    groups.append(cur)
+    lines = [(ws[0].start, ws[-1].end, "".join(w.word for w in ws).strip()) for ws in groups]
+    return [ln for ln in lines if ln[2]]
+
+
+def run_redo(model, samples, args, lang: str) -> int:
+    """録音後のし直し(REQUIREMENTS FR-9b): 録音 1 本を丸ごと認識し、行ごとに final を出して終わる。
+
+    会議中は短い区間を 1 つずつ認識するので、文の途中で切れ、無音や短い区間から幻覚の句が出る(2026-10-16 実会議:
+    自分の行の 1 割)。ここでは VAD で無音を除いてつなぎ、30 s の窓で文脈ごと認識する(幻覚 17 → 0 行)。
+    beam 5・temperature は既定の後退・前の文に寄せない(会議中の final と同じ)。stdin の quit は区間の合間に見て止める。
+    """
+    cq: queue.Queue = queue.Queue()
+    threading.Thread(target=read_commands, args=(cq,), daemon=True).start()
+    stop = threading.Event()
+    for sig in ("SIGINT", "SIGBREAK"):
+        if hasattr(signal, sig):
+            signal.signal(getattr(signal, sig), lambda *_: stop.set())
+    audio_s = round(len(samples) / SR, 2)
+    emit({"type": "ready", "locale": args.locale, "channel": args.channel, "dst_hz": SR, "source": f"redo:{args.redo}",
+          "audio_s": audio_s, "engine": "faster-whisper", "model": Path(args.model).name})
+    t = time.perf_counter()
+    lines = chars = segments = 0
+    try:
+        segs, info = model.transcribe(samples, language=lang, task="transcribe", beam_size=5, vad_filter=True,
+                                      word_timestamps=True, condition_on_previous_text=False)
+        for seg in segs:
+            segments += 1
+            out = redo_lines(seg, args.redo_gap)
+            for a, b, text in out:
+                emit({"type": "final", "channel": args.channel, "text": text, "start_s": round(a, 2),
+                      "end_s": round(b, 2), "fed_s": audio_s})
+                lines += 1
+                chars += len(text)
+            diag({"phase": "redo_segment", "start_s": round(seg.start, 2), "end_s": round(seg.end, 2), "audio_s": audio_s,
+                  "lines": len(out), "avg_logprob": round(seg.avg_logprob, 3), "no_speech_prob": round(seg.no_speech_prob, 3),
+                  "compression_ratio": round(seg.compression_ratio, 2), "temperature": seg.temperature})
+            if quit_arrived(cq, stop):
+                diag({"phase": "redo_cancelled", "at_s": round(seg.end, 2), "lines": lines})
+                emit({"type": "bye"})
+                return 0
+    except Exception as e:   # GPU のメモリ不足など。本体は会議中の文のままにする
+        diag({"phase": "abort", "reason": "redo_failed", "error": f"{type(e).__name__}: {e}"[:500]})
+        return 8
+    diag({"phase": "redo_done", "audio_s": audio_s, "speech_s": round(getattr(info, "duration_after_vad", 0) or 0, 2),
+          "segments": segments, "lines": lines, "chars": chars, "ms": round((time.perf_counter() - t) * 1000)})
+    emit({"type": "bye"})
+    return 0
+
+
 def load_model(args):
     add_cuda_dlls()
     os.environ["HF_HUB_OFFLINE"] = "1"   # 会議中はネットへ出ない(モデルはセットアップで取得済み)
@@ -553,6 +654,10 @@ def main() -> int:
     ap.add_argument("--partial-every", type=float, default=0.3)
     ap.add_argument("--min-silence", type=float, default=0.3)
     ap.add_argument("--max-speech", type=float, default=20.0)
+    ap.add_argument("--redo", help="録音後のし直し: この録音を丸ごと認識し、行ごとに final を出して終わる(FR-9b)")
+    ap.add_argument("--redo-gap", type=float, default=1.5, help="--redo で行を分ける語と語の間(秒)")
+    ap.add_argument("--pcm-out", action="store_true",
+                    help="認識に渡すのと同じ音を stdout にも出す(会議の文字起こしを Soniox で行うとき・FR-2b)")
     ap.add_argument("--setup-model", action="store_true", help="セットアップ専用: モデルを取得して終わる")
     ap.add_argument("--self-test", action="store_true", help="モデルを GPU に読み込めるかだけ確かめて終わる")
     args = ap.parse_args()
@@ -567,12 +672,21 @@ def main() -> int:
         return 7
     if args.list_devices:
         return list_devices()
+    redo_samples = None
+    if args.redo:   # 録音が読めなければモデルを読む前に終える(本体は会議中の文のままにする)
+        try:
+            redo_samples = load_audio(args.redo)
+        except Exception as e:
+            diag({"phase": "abort", "reason": "file_open_failed", "error": f"{type(e).__name__}: {e}"[:500]})
+            return 4
 
     model = load_model(args)
     if args.self_test:
         print(json.dumps({"phase": "self_test", "ok": True, "device": args.device}), flush=True)
         return 0
     lang = args.locale.split("-")[0].lower()
+    if redo_samples is not None:
+        return run_redo(model, redo_samples, args, lang)
     aq: queue.Queue = queue.Queue()
     capture = None
     samples = None
@@ -599,6 +713,7 @@ def main() -> int:
     streamer = Streamer(model, lang, args.channel, partial_every=args.partial_every,
                         min_silence=args.min_silence, max_speech=args.max_speech)
     meter = LevelMeter()
+    pcm_out = PcmOut() if args.pcm_out else None
     recorder = Recorder(args.record) if args.record else None
     if recorder:
         recorder.start()
@@ -634,6 +749,8 @@ def main() -> int:
                 continue
             x, head_ms = it
             meter.add(x)
+            if pcm_out:
+                pcm_out.add(x)
             if recorder:
                 recorder.write(x, head_ms)
             closed += streamer.accept(x)
@@ -646,6 +763,8 @@ def main() -> int:
                 break
             finalize |= cmd == "finalize"
             quit_ |= cmd == "quit"
+        if pcm_out and (quit_ or ended):   # 最後の 0.1 s に満たない音も渡してから閉じる
+            pcm_out.flush()
         if finalize and not (quit_ or ended):
             closed.append(streamer.request_finalize())
         closed.append(streamer.finalize_deadline())

@@ -6,7 +6,9 @@
 - GET /nagi/<表情>.png  ナギの絵(static/nagi/・名前は NAGI_MOODS だけ。無ければ idle.png)
 - POST /api/action {"action": "toggle_pause"|"pause"|"resume"|"deepdive"|"mode"|"hide"} → on_action(name)
 TerminalUI と同じメソッドを持ち、MultiUI で束ねてパイプラインから同じ呼び方で使う。
-bind は 127.0.0.1 固定(外へ出さない)。
+bind は 127.0.0.1 固定(外へ出さない)。Host が 127.0.0.1 / localhost(このポート)でない要求は断る(DNS の付け替えで
+ほかのサイトから読ませない)。POST は application/json だけ受ける(ほかのサイトのページからの単純な POST を通さない。
+JSON で送るにはブラウザの事前確認が要り、このサーバーは許可しない)。2026-10-19 音声入力の API(設定・履歴)を足した時の読み直しの指摘。
 """
 from __future__ import annotations
 
@@ -53,6 +55,7 @@ class WebUI:
         self.state: dict = {"mode": "", "privacy": "", "paused": False, "session": "", "llm": "", "started_ms": int(time.time() * 1000)}
         self._history: deque = deque(maxlen=history)
         self._subs: list[queue.Queue] = []
+        self.listeners: list[Callable[[dict], None]] = []   # 画面へ送る知らせを、アプリの中でも受ける(ナギのペット・FR-14c)
         self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -78,7 +81,13 @@ class WebUI:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _host_ok(self) -> bool:
+                port = self.server.server_address[1]
+                return (self.headers.get("Host") or "").lower() in (f"127.0.0.1:{port}", f"localhost:{port}")
+
             def do_GET(self):
+                if not self._host_ok():
+                    return self._json(403, {"error": "forbidden host"})
                 if self.path in ("/", "/index.html", "/app.html", "/caption.html"):
                     body = (STATIC / (ui.page if self.path == "/" else self.path.lstrip("/"))).read_bytes()
                     self.send_response(200)
@@ -175,6 +184,10 @@ class WebUI:
                 self.wfile.flush()
 
             def do_POST(self):
+                if not self._host_ok():
+                    return self._json(403, {"error": "forbidden host"})
+                if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+                    return self._json(415, {"error": "application/json only"})
                 n = int(self.headers.get("Content-Length") or 0)
                 try:
                     body = json.loads(self.rfile.read(n) or b"{}")
@@ -226,6 +239,11 @@ class WebUI:
             try:
                 q.put_nowait(ev)
             except queue.Full:
+                pass
+        for fn in list(self.listeners):
+            try:
+                fn(ev)
+            except Exception:  # noqa: BLE001 — 聞き手の失敗で画面への知らせを止めない
                 pass
 
     def reset_history(self) -> None:

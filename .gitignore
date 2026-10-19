@@ -16,3 +16,4 @@ tests/fixtures/*.aiff
 helpers/macos/hotkey_helper/hotkey-helper
 helpers/macos/overlay_helper/overlay-helper
 helpers/macos/mix_helper/mix-helper
+helpers/macos/dictation_helper/dictation-helper

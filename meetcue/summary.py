@@ -1,6 +1,8 @@
 """会議後サマリ — セッション記録から summary.md を作る(FR-9)。任意で Vault に保存する(Q8)。
 
 - 決定的な部分(Q&A 一覧・★ の候補・文字起こし)はコードで組む。
+- 録音後に文字起こしをし直した記録(FR-9b)は、要約と文字起こしの節をし直した文から作る。質問とキューの節は会議中の
+  発言(判定と候補が付いた rid)から作る。
 - 要約・決定・宿題は LLM(privacy=local か鍵なしなら省略し、その旨を書く)。
 - Vault 保存は `01_Projects/Meeting Cue/Sessions/<日付>_<id>.md`。privacy=local のときは題名と日付だけ。
 """
@@ -12,6 +14,7 @@ from pathlib import Path
 
 from .cues import llm as llm_client
 from .cues import openrouter
+from .library import LIVE_FILE, transcript_rows, transcript_source
 
 SUMMARY_SYSTEM = "あなたは会議の記録係です。与えられた文字起こしから、日本語で簡潔に要約します。事実に無いことは書きません。"
 SUMMARY_USER = """# 文字起こし(古い → 新しい・[channel] は話者の出所。mic=私、system/room=相手)
@@ -43,7 +46,9 @@ def build_summary(session_dir: Path, *, api_key: str | None, model: str, privacy
     """target(設定画面の接続先・2026-09-26)があればその fast モデルで要約する。無ければ従来どおり OpenRouter の model。"""
     d = Path(session_dir)
     meta = json.loads((d / "meta.json").read_text(encoding="utf-8")) if (d / "meta.json").exists() else {}
-    transcript = _read_jsonl(d / "transcript.jsonl")
+    live = _read_jsonl(d / LIVE_FILE)               # 判定と候補が付いた会議中の発言(質問とキューの節)
+    transcript = transcript_rows(d, meta)           # 要約と文字起こしの節(し直した文があればそちら)
+    redone = transcript_source(d, meta) == "redo"
     cues = _read_jsonl(d / "cues.jsonl")
     judgments = {j["rid"]: j for j in _read_jsonl(d / "judgments.jsonl")}
     started = time.strftime("%Y-%m-%d %H:%M", time.localtime((meta.get("started_ms") or 0) / 1000))
@@ -51,7 +56,7 @@ def build_summary(session_dir: Path, *, api_key: str | None, model: str, privacy
 
     lines = [f"# Meeting Cue! セッション {started}", "",
              f"- id: `{meta.get('id', d.name)}` / mode: {meta.get('mode')} / privacy: {meta.get('privacy')} / "
-             f"約 {dur_min} 分 / 発話 {len(transcript)} 件", ""]
+             f"約 {dur_min} 分 / 発話 {len(transcript)} 件" + (" / 文字起こしは録音から認識し直した文" if redone else ""), ""]
 
     # LLM 要約
     text_for_llm = "\n".join(f"[{t['channel']}] {t['text']}" for t in transcript)
@@ -75,7 +80,7 @@ def build_summary(session_dir: Path, *, api_key: str | None, model: str, privacy
     for c in cues:
         if c.get("kind") == "cues":
             by_rid.setdefault(c["rid"], {}).update({c.get("part") or "all": c})
-    for t in transcript:
+    for t in live:
         rec = by_rid.get(t["rid"])
         if not rec:
             continue

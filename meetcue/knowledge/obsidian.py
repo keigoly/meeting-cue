@@ -74,14 +74,17 @@ def open_uri(p: Path) -> str:
 
 
 def open_note(vault_root: Path, rel: str, *, runner=None) -> tuple[bool, str]:
-    """(開けたか, 画面に出す一言)。runner は試験用(既定は呼んだ時点の subprocess.run)。"""
+    """(開けたか, 画面に出す一言)。runner は試験用で、渡せば OS を問わずそれを呼ぶ(既定は Windows = os.startfile・
+    ほかは呼んだ時点の subprocess.run)。Windows で runner を使わずに本物の Obsidian を呼び、CI と試験のたびに
+    一時フォルダのノートで「Vault not found」が出ていた(2026-10-09)。"""
+    given = runner is not None
     runner = runner or subprocess.run
     p = note_path(vault_root, rel)
     if p is None:
         return False, "Vault の中のノートではありません"
     uri = open_uri(p)
     try:
-        if sys.platform == "win32":
+        if sys.platform == "win32" and not given:
             os.startfile(uri)   # 既定のアプリ(Obsidian)で開く
         else:
             runner(["open" if sys.platform == "darwin" else "xdg-open", uri], check=False, timeout=10)

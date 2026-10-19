@@ -9,8 +9,11 @@
 // stderr: 診断(JSON)。0.1 s ごとの音量 {"phase":"level","db":…,"peak_db":…} もここに流す。
 // stdin(1 行 1 コマンド): "finalize"(強制確定・ja は自動 final が出ない) / "quit"。
 //
-// 引数: [--locale ja-JP] [--channel mic] [--file <audio>] [--pace 1.0] [--record <out.m4a>]
+// 引数: [--locale ja-JP] [--channel mic] [--file <audio>] [--pace 1.0] [--record <out.m4a>] [--pcm-out]
 //   --file はテスト用。ファイルを --pace 倍速(1.0=実時間)で供給し、終わったら自動で quit する。
+//   --pcm-out は会議の文字起こしを Soniox で行うとき(REQUIREMENTS FR-2b・2026-10-18): analyzer に渡すのと同じ音
+//   (モノラル s16le・ready の dst_hz)を約 0.1 s ごとに {"type":"audio","seq":n,"pcm":"<base64>"} で stdout にも出す。
+//   端末内の認識・録音・音量はそのまま続ける(本体の meetcue.soniox_stt が、Soniox に届かないときに切り替えて使う)。
 // ビルド: swiftc -parse-as-library -O main.swift -o stt-helper(helpers/macos/Makefile)
 // 権限: 初回にマイク許可のダイアログ。--file はマイクを開かない。
 
@@ -62,6 +65,7 @@ struct Args {
             case "--file": if i + 1 < argv.count { a.file = argv[i + 1]; i += 1 }
             case "--pace": if i + 1 < argv.count { a.pace = Double(argv[i + 1]) ?? 1.0; i += 1 }
             case "--record": i += 1   // gRecorder が読む
+            case "--pcm-out": break   // gPcmOut が読む
             default: if !argv[i].hasPrefix("--") { a.locale = argv[i] }
             }
             i += 1
@@ -112,17 +116,20 @@ let gMeter = LevelMeter()
 // 文字起こしの start_s / end_s と同じ時間軸なので、画面から発言の位置へ正確に飛べる。
 // 書き込みは直列キューで行い、音声スレッドを止めない。最初の書き込みで record_start(t0_ms = その音声の頭の壁時計)を
 // stderr に出す(マイクとスピーカーの頭合わせに使う)。正規の停止で close() し、ファイルを完結させる。
+// close() の後の書き込みは捨てる(2026-10-09): --file は quit の後も供給が続き、閉じた録音を同じパスに作り直して
+// 上書きしていた(moov の無いファイルが残り、録音が丸ごと聞けなくなった)。
 final class Recorder: @unchecked Sendable {
     private let q = DispatchQueue(label: "meetcue.record")
     private let url: URL
     private var file: AVAudioFile?
     private var failed = false
+    private var closed = false
     private var frames: Int64 = 0
     init(path: String) { url = URL(fileURLWithPath: path) }
     func write(_ buf: AVAudioPCMBuffer) {
         let nowMs = Int(Date().timeIntervalSince1970 * 1000)
         q.async {
-            if self.failed { return }
+            if self.failed || self.closed { return }
             if self.file == nil {
                 do {
                     try FileManager.default.createDirectory(at: self.url.deletingLastPathComponent(),
@@ -157,6 +164,7 @@ final class Recorder: @unchecked Sendable {
     }
     func close() {
         q.sync {
+            self.closed = true
             guard let f = self.file else { return }
             f.close()
             diag(["phase": "record_done", "path": self.url.path, "frames": self.frames])
@@ -169,6 +177,47 @@ var gRecorder: Recorder? = {
     if let i = a.firstIndex(of: "--record"), i + 1 < a.count { return Recorder(path: a[i + 1]) }
     return nil
 }()
+
+// --pcm-out(2026-10-18・FR-2b): analyzer に渡すのと同じ音を s16le にして、約 0.1 s ずつ stdout のイベントで出す。
+// 書き出しは直列キューで行い、音声スレッドを止めない。止めるときは flush() で残りを出してから bye。
+final class PcmOut: @unchecked Sendable {
+    private let q = DispatchQueue(label: "meetcue.pcmout")
+    private var pending = Data()
+    private var seq = 0
+    func write(_ buf: AVAudioPCMBuffer) {
+        let n = Int(buf.frameLength)
+        guard n > 0 else { return }
+        let stride = max(1, buf.stride)
+        var samples = [Int16](repeating: 0, count: n)
+        if let p = buf.int16ChannelData {
+            for i in 0..<n { samples[i] = p[0][i * stride] }
+        } else if let p = buf.floatChannelData {
+            for i in 0..<n { samples[i] = Int16(max(-1, min(1, p[0][i * stride])) * 32767) }
+        } else {
+            return
+        }
+        let chunk = max(2, Int(buf.format.sampleRate) / 10 * 2)
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        q.async {
+            self.pending.append(data)
+            while self.pending.count >= chunk {
+                self.send(Data(self.pending.prefix(chunk)))
+                self.pending.removeFirst(chunk)
+            }
+        }
+    }
+    func flush() {
+        q.sync {
+            if !self.pending.isEmpty { self.send(self.pending) }
+            self.pending = Data()
+        }
+    }
+    private func send(_ part: Data) {
+        seq += 1
+        emit(["type": "audio", "seq": seq, "pcm": part.base64EncodedString()])
+    }
+}
+let gPcmOut: PcmOut? = CommandLine.arguments.contains("--pcm-out") ? PcmOut() : nil
 
 // 入力バッファを analyzer の形式へ変換して供給する(マイク・ファイル共通)。
 func convertAndYield(_ inBuf: AVAudioPCMBuffer, conv: AVAudioConverter, dstFmt: AVAudioFormat,
@@ -189,6 +238,7 @@ func convertAndYield(_ inBuf: AVAudioPCMBuffer, conv: AVAudioConverter, dstFmt: 
         timeBox.add(Double(outBuf.frameLength) / dstFmt.sampleRate)
         gMeter.add(outBuf)
         gRecorder?.write(outBuf)
+        gPcmOut?.write(outBuf)
     }
 }
 
@@ -340,6 +390,7 @@ struct STTHelper {
                 eng.inputNode.removeTap(onBus: 0)
             }
             gRecorder?.close()   // 録音を完結させてから後始末(flush の打ち切り exit より前)
+            gPcmOut?.flush()
             cont.finish()
             let flush = Task { try? await analyzer.finalizeAndFinishThroughEndOfInput(); _ = await consumer.value }
             Task { try? await Task.sleep(nanoseconds: 1_500_000_000); emit(["type": "bye", "note": "flush_timeout"]); exit(0) }

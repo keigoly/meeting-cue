@@ -56,8 +56,8 @@ def test_vault_root_and_open_note(tmp_path):
         assert obsidian.note_path(root, bad) is None
     ran = []
     ok, _ = obsidian.open_note(root, "01_Projects/VPN/検証.md", runner=lambda args, **kw: ran.append(args))
-    if sys.platform != "win32":
-        assert ok and ran[0][-1].startswith("obsidian://open?path=") and "%E6%A4%9C%E8%A8%BC.md" in ran[0][-1]
+    # Windows でも渡した runner を呼ぶ(本物の Obsidian を呼ぶと一時フォルダのノートで「Vault not found」が出る)
+    assert ok and ran[0][-1].startswith("obsidian://open?path=") and "%E6%A4%9C%E8%A8%BC.md" in ran[0][-1]
     assert obsidian.open_note(root, "../x.md", runner=lambda *a, **k: None) == (False, "Vault の中のノートではありません")
 
 

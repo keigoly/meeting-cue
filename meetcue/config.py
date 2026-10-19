@@ -151,6 +151,47 @@ class GlossaryConfig:
 
 
 @dataclass
+class RedoConfig:
+    """録音後の文字起こしし直し(FR-9b・2026-10-16 keigoly様)。止めた後、マイクと相手の録音を 1 本ずつ丸ごと認識し直し、
+    記録の文字起こしを差し替える(会議中の文は残す)。今は Windows(STT ヘルパーの --redo)だけ・Mac は飛ばす。"""
+    enabled: bool = True
+    # 語と語の間がこれ以上なら行を分ける。VAD でつないだ区間は無音をまたいで時刻が前の声に付くので、語の時刻で分ける
+    # (2026-10-16 実会議 18.7 分: 分けないと CER 26.5%・0.8 / 1.5 / 3.0 s で 18.6 / 18.6 / 18.5%・spikes/REDO_TRANSCRIBE.md)
+    gap_s: float = 1.5
+
+
+@dataclass
+class SonioxConfig:
+    """会議の文字起こしを Soniox で(FR-2b・2026-10-18)。使うかは会議ごとに「録音を開始」で選ぶ(既定は端末内・
+    LOCAL では選べない)。音の取り込みと録音は今の STT ヘルパーのまま、本体が Soniox へ流す(meetcue.soniox_stt)。"""
+    region: str = "us"              # Soniox の地域(jp は Console で申請・鍵も別)
+    language_hints: list[str] = field(default_factory=lambda: ["ja", "en"])
+    terms_file: Path = APP_DIR / "soniox_terms.txt"   # 会議で渡す語(1 行 1 語・# は注釈)。無ければ語彙なし(使う語だけを正しい表記で)
+
+
+@dataclass
+class DictationConfig:
+    """音声入力(FR-14・2026-10-17 keigoly様)。キーを押している間に話した言葉を Soniox で文字にし、今のアプリに貼り付ける。"""
+    key: str = "V"                  # ⌃⌥V(Carbon のホットキー。Aqua Voice の Fn・入力ソースの ⌃⌥Space と重ならない)
+    mods: str = "ctrl,opt"
+    hold_ms: int = 400              # これ以上押してから離したら、そこで終わり(押している間だけ録る)
+    # 押している間ではなく、次に押すまで録る始め方(2026-10-18 keigoly様「Aqua Voice のように 2 回押しで」): 2 = 短く 2 回押す
+    # (1 回だけ短く押したときは録らずに取り消す)/ 1 = 短く 1 回押す(10-17 の初版の動き)。2 回目は 1 回目を離してから double_ms 以内
+    toggle_taps: int = 2
+    double_ms: int = 450
+    max_s: float = 300.0            # 録りっぱなしを止める長さ
+    region: str = "us"              # Soniox の地域(jp は Console で申請・鍵も別)
+    language_hints: list[str] = field(default_factory=lambda: ["ja", "en"])
+    terms_file: Path = APP_DIR / "dictation" / "terms.txt"   # Soniox に渡す語(1 行 1 語・# は注釈)。使う語だけを正しい表記で
+    paste: bool = True
+    keep_audio: bool = True         # 1 回ごとの録音を ~/.meeting-cue/dictation/<日付>/ に残す
+    fin_timeout_s: float = 5.0      # finalize から確定("<fin>")を待つ上限
+    realtime_gap_ms: int = 500      # リアルタイム(FR-14b): この長さの間で finalize して、確定した分を貼る
+    modifier_grace_ms: int = 300    # 修飾キーだけのキー(右 ⌘ など)で始めたとき、音・バー・Soniox への接続を待つ長さ。その間に
+                                    # ほかのキーを押したら(⌘C などのショートカット)、何も出さずに捨てる。マイクはすぐ録り始める
+
+
+@dataclass
 class IndexConfig:
     include: list[str] = field(default_factory=lambda: ["01_Projects", "02_Ideas", "03_Resources", "04_Context"])
     exclude: list[str] = field(default_factory=lambda: [
@@ -186,6 +227,9 @@ class Config:
     planner: PlannerConfig = field(default_factory=PlannerConfig)
     dig: DigConfig = field(default_factory=DigConfig)
     glossary: GlossaryConfig = field(default_factory=GlossaryConfig)
+    redo: RedoConfig = field(default_factory=RedoConfig)
+    soniox: SonioxConfig = field(default_factory=SonioxConfig)
+    dictation: DictationConfig = field(default_factory=DictationConfig)
     index: IndexConfig = field(default_factory=IndexConfig)
     segmenter: SegmenterConfig = field(default_factory=SegmenterConfig)
     # file / tap 音源用(partial が約 1 秒周期のバースト → 1 秒超で待つ)
@@ -229,8 +273,8 @@ def load_config(path: Path | None = None) -> Config:
     p = path or (APP_DIR / "config.toml")
     if p.exists():
         data = tomllib.loads(p.read_text(encoding="utf-8"))
-        _apply(cfg, {k: v for k, v in data.items() if k not in ("llm", "anthropic", "jev", "selector", "planner", "dig", "glossary", "index",
-                                                          "segmenter", "segmenter_tap", "segmenter_self")})
+        _apply(cfg, {k: v for k, v in data.items() if k not in ("llm", "anthropic", "jev", "selector", "planner", "dig", "glossary", "redo", "soniox", "dictation",
+                                                          "index", "segmenter", "segmenter_tap", "segmenter_self")})
         _apply(cfg.llm, data.get("llm", {}))
         _apply(cfg.anthropic, data.get("anthropic", {}))
         _apply(cfg.jev, data.get("jev", {}))
@@ -238,6 +282,9 @@ def load_config(path: Path | None = None) -> Config:
         _apply(cfg.planner, data.get("planner", {}))
         _apply(cfg.dig, data.get("dig", {}))
         _apply(cfg.glossary, data.get("glossary", {}))
+        _apply(cfg.redo, data.get("redo", {}))
+        _apply(cfg.soniox, data.get("soniox", {}))
+        _apply(cfg.dictation, data.get("dictation", {}))
         _apply(cfg.index, data.get("index", {}))
         _apply(cfg.segmenter, data.get("segmenter", {}))
         _apply(cfg.segmenter_tap, data.get("segmenter_tap", {}))

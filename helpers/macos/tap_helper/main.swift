@@ -11,6 +11,9 @@
 //   --exclude-pid <pid>  システム全体タップ(指定 PID だけ除外。会議アプリの内部プロセス構成に影響されない)
 //   --file <path>        afplay で再生したファイルをタップ(テスト用)
 //   --list               音声プロセス一覧(PID / アプリ名 / ♪=出力中)
+//   --pcm-out            会議の文字起こしを Soniox で行うとき(REQUIREMENTS FR-2b・2026-10-18): analyzer に渡すのと同じ音
+//                        (モノラル s16le・ready の dst_hz)を約 0.1 s ごとに {"type":"audio","seq":n,"pcm":"<base64>"} で
+//                        stdout にも出す。端末内の認識・録音・音量はそのまま続ける(stt-helper と同じ)。
 // ビルド: swiftc -parse-as-library -O main.swift -o tap-helper(helpers/macos/Makefile)
 // 権限: 初回の AudioHardwareCreateProcessTap で「システム音声録音」の許可が要る
 //        (System Settings > Privacy & Security)。未許可だと tap_create が失敗する。
@@ -152,6 +155,47 @@ final class Recorder: @unchecked Sendable {
         }
     }
 }
+// --pcm-out(2026-10-18・FR-2b): analyzer に渡すのと同じ音を s16le にして、約 0.1 s ずつ stdout のイベントで出す
+// (stt-helper の PcmOut の写し)。書き出しは直列キューで行い、IO proc を止めない。止めるときは flush() で残りを出す。
+final class PcmOut: @unchecked Sendable {
+    private let q = DispatchQueue(label: "meetcue.pcmout")
+    private var pending = Data()
+    private var seq = 0
+    func write(_ buf: AVAudioPCMBuffer) {
+        let n = Int(buf.frameLength)
+        guard n > 0 else { return }
+        let stride = max(1, buf.stride)
+        var samples = [Int16](repeating: 0, count: n)
+        if let p = buf.int16ChannelData {
+            for i in 0..<n { samples[i] = p[0][i * stride] }
+        } else if let p = buf.floatChannelData {
+            for i in 0..<n { samples[i] = Int16(max(-1, min(1, p[0][i * stride])) * 32767) }
+        } else {
+            return
+        }
+        let chunk = max(2, Int(buf.format.sampleRate) / 10 * 2)
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        q.async {
+            self.pending.append(data)
+            while self.pending.count >= chunk {
+                self.send(Data(self.pending.prefix(chunk)))
+                self.pending.removeFirst(chunk)
+            }
+        }
+    }
+    func flush() {
+        q.sync {
+            if !self.pending.isEmpty { self.send(self.pending) }
+            self.pending = Data()
+        }
+    }
+    private func send(_ part: Data) {
+        seq += 1
+        emit(["type": "audio", "seq": seq, "pcm": part.base64EncodedString()])
+    }
+}
+let gPcmOut: PcmOut? = CommandLine.arguments.contains("--pcm-out") ? PcmOut() : nil
+
 var gRecorder: Recorder? = {
     let a = CommandLine.arguments
     if let i = a.firstIndex(of: "--record"), i + 1 < a.count { return Recorder(path: a[i + 1]) }
@@ -476,6 +520,7 @@ struct TapHelper {
                     timeBox.add(Double(outBuf.frameLength) / dstFmt.sampleRate)
                     gMeter.add(outBuf)
                     gRecorder?.write(outBuf)
+                    gPcmOut?.write(outBuf)
                 }
             }
             guard st == noErr, let procID else {
@@ -526,6 +571,7 @@ struct TapHelper {
             // 9) 後片付け(Core Audio を先に止める)+ フラッシュ(最大 1.5s で必ず終了)。
             AudioDeviceStop(aggID, procID)
             gRecorder?.close()   // 録音を完結させる
+            gPcmOut?.flush()
             AudioDeviceDestroyIOProcID(aggID, procID)
             AudioHardwareDestroyAggregateDevice(aggID)
             AudioHardwareDestroyProcessTap(tapID)

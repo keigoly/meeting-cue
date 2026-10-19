@@ -88,6 +88,22 @@ class STTHelper:
     async def finalize(self) -> None:
         await self.send("finalize")
 
+    async def wait(self, timeout: float) -> int | None:
+        """自分で終わるのを待ち、stderr の診断を読み切る(録音後のし直し: bye の後)。過ぎたら stop で止める。終了コードを返す。"""
+        if not self.proc:
+            return None
+        try:
+            await asyncio.wait_for(self.proc.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            await self.stop()
+            return self.proc.returncode
+        if self._stderr_task:
+            try:
+                await asyncio.wait_for(self._stderr_task, timeout=2)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        return self.proc.returncode
+
     async def stop(self) -> None:
         """quit → 3 秒待つ(録音を閉じ終えていなければ RECORD_GRACE_S まで)→ SIGTERM → 2 秒 → SIGKILL。マイク・タップを確実に解放する。"""
         if not self.proc:

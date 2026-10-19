@@ -14,6 +14,7 @@
 | `captions.py` | YouTube の字幕を無音で区切って表示する(正解表の下書き用) |
 | `fetch_audio.sh` | 評価用の音声を `~/.meeting-cue/eval/audio/` に取り直す(repo・Vault には入れない) |
 | `mic_cer.py` | 自分の声(マイク)の文字起こしを読み上げ原稿と比べ、文字誤り率(CER)と固有名詞の取れ具合を出す(2026-09-26)。原稿・語彙は `~/.meeting-cue/eval/reading/`(個人の固有名詞を含むので repo に入れない) |
+| `redo_cer.py` | 録音後の文字起こしし直し(修正 A・2026-10-16): 2 本(自分 / 相手)の文字起こしを時刻順に 1 本につなぎ、参照(.txt / .srt)との CER と、チャネルごとの行数・平均字数・5 字以下の行・幻覚の句の行・暴走した繰り返しの行(`loop_lines`・同じ句が 4 回以上続く)を出す。実会議の素材と参照は `~/.meeting-cue/eval/<記録>/`(repo に入れない)。結果は `spikes/REDO_TRANSCRIBE.md` |
 
 ## 2. 使い方
 

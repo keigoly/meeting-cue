@@ -85,6 +85,10 @@ min_chars = 40                 # 前回から会話がこれだけ進んだら
 max_terms = 4                  # 1 回に拾う語の上限
 # level = "高校以上〜大学で習う語・業界の専門用語・技術用語・略語"   # 拾う語の水準
 
+[redo]                         # 録音後の文字起こしし直し(止めたら録音から丸ごと認識し直して差し替える・今は Windows だけ)
+enabled = true                 # false で止める(会議中の文字起こしのまま)。手で頼むときは `meetcue redo <記録>`
+gap_s = 1.5                    # 語と語の間がこれ以上なら行を分ける(秒)
+
 [segmenter]
 pause_ms = 500                 # partial 更新が止まってから finalize を送るまで(通常)
 pause_incomplete_ms = 900      # 末尾が助詞・語中のとき(まだ続く)
@@ -108,3 +112,18 @@ pause_ms = 1200                 # 500/900/300 ms で CER 平均 28.6% → この
 pause_incomplete_ms = 1600      # 対面の相手(room)は判定を急ぐので [segmenter] のまま
 pause_sentence_ms = 1100
 safety_ms = 3000
+
+[soniox]                        # 会議の文字起こしを Soniox で(FR-2b・「録音を開始」で会議ごとに選ぶ・鍵は ⚙)
+region = "us"                   # jp は Soniox の Console で申請(鍵も別)
+language_hints = ["ja", "en"]
+# terms_file = "~/.meeting-cue/soniox_terms.txt"   # 会議で渡す語(1 行 1 語)
+
+[dictation]                     # 音声入力(FR-14 / FR-14b)。キー・方式・送信コマンドなど画面で変える項目は ~/.meeting-cue/dictation/settings.json
+hold_ms = 400                   # これ以上押してから離したら、押している間だけ録る
+toggle_taps = 2                 # 2 = 短く 2 回押すとハンズフリー(1 回だけは取り消し)/ 1 = 短く 1 回押すとハンズフリー
+double_ms = 450                 # 2 回押しの間隔の上限(1 回目を離してから)
+max_s = 300.0                   # 録りっぱなしを止める長さ
+region = "us"
+realtime_gap_ms = 500           # リアルタイムのとき、この長さの間で区切って貼る
+fin_timeout_s = 5.0             # finalize から確定を待つ上限
+keep_audio = true               # 1 回ごとの録音を ~/.meeting-cue/dictation/<日付>/ に残す(プライバシーモードでは残さない)

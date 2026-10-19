@@ -10,6 +10,8 @@
 - Obsidian(FR-5b・2026-10-08): GET /api/obsidian(Vault・保管庫の一覧・索引・MCP の状態)/ POST /api/obsidian/choose
   (フォルダを選ぶ)/ POST /api/obsidian/index {full?}(裏で索引を作る)/ POST /api/obsidian/mcp/check(MCP の接続確認)/
   POST /api/obsidian/open {path}(ノートを Obsidian で開く)。録音には MCP の検索(pipeline.mcp_search)を渡す。
+- 音声入力(FR-14b・2026-10-19): /api/dictation/…(meetcue/dictation_app.py)。アプリが起動している間、設定で「音声入力を使う」なら
+  裏で待ち受ける(録音とは別のスレッド・別のヘルパー)。
 Ctrl-C(SIGINT)と SIGTERM は録音を正規に止めてから終了する。
 """
 from __future__ import annotations
@@ -28,11 +30,12 @@ import tomllib
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from . import captions, library
+from . import captions, library, redo
 from .config import Config, default_port
 from .metrics import Metrics
 from . import providers, secrets
 from .cues import claude_cli, llm, openai_direct
+from .dictation_app import DictationService
 from .knowledge import mcp, obsidian
 from .pipeline import Pipeline, Source, helper_hint
 from .replacements import Replacer
@@ -103,13 +106,15 @@ class _CaptionTap:
 
 class App:
     def __init__(self, cfg: Config, *, sources: list[Source], port: int | None = None, window: bool = True,
-                 model: str | None = None, llm_enabled: bool = True, summary: bool = True):
+                 model: str | None = None, llm_enabled: bool = True, summary: bool = True, redo_after: bool = True):
         self.cfg = cfg
         self.sources = sources
         self.window = window
         self.model = model or cfg.llm.model
         self.llm_enabled = llm_enabled
         self.summary = summary
+        self.redo_after = redo_after   # 録音後の文字起こしし直し(FR-9b)。config の [redo] enabled でも止められる
+        self._redo_cancel: asyncio.Event | None = None   # し直しの最中だけ。アプリを終えるときに立てて取り消す
         self.term = TerminalUI(show_partials=False)
         self.web = WebUI(port=port or default_port(), page="app.html")
         self.web.on_action_body = self._action_threadsafe
@@ -139,6 +144,7 @@ class App:
         self._vs: mcp.VaultSearch | None = None
         self._vs_key: str = ""
         self._mcp_last: dict | None = None
+        self.dictation = DictationService(cfg, self.web, self.term, guard=self._dictation_guard)   # 音声入力(FR-14b)
 
     # ---- 起動・終了 ----------------------------------------------------------------
     async def run(self) -> None:
@@ -157,10 +163,13 @@ class App:
         self.term.status(f"meetcue app: {self.web.url}(Ctrl-C で終了。録音中なら止めてから終わる)")
         if self.window:
             await self._spawn_window()
+        self.dictation.start()   # 設定で「音声入力を使う」なら裏で待ち受ける(Mac だけ)
         watchdog = asyncio.create_task(self._caption_watchdog())
         stall = asyncio.create_task(LoopStallWatch(on_stall=self._loop_stalled).run())
         await self._shutdown.wait()
         self.term.status("終了します")
+        if self._redo_cancel:   # 録音後のし直しの最中なら取り消す(会議中の文字起こしのまま・サマリは作る)
+            self._redo_cancel.set()
         watchdog.cancel()
         stall.cancel()
         async with self._caption_lock:
@@ -172,12 +181,19 @@ class App:
                 await asyncio.wait_for(asyncio.shield(self._task), timeout=60)
             except asyncio.TimeoutError:
                 self.term.error("録音の後始末が 60 秒で終わりませんでした")
+        await asyncio.to_thread(self.dictation.stop)
         await self._stop_window()
         if self._cli_pool:
             self._cli_pool.close()
         if self._vs:
             self._vs.close()
         self.web.stop()
+
+    def _dictation_guard(self) -> str | None:
+        """音声入力を断る理由。LOCAL(仕事の会議)の録音中は、マイクの音(スピーカーから入る会議の声を含む)を Soniox に送らない。"""
+        if self.web.state.get("recording") and self.web.state.get("privacy") == "local":
+            return "LOCAL の録音中は音声入力を使えません"
+        return None
 
     async def _spawn_window(self) -> None:
         if sys.platform == "win32":   # pywebview のウィンドウのヘルパー(アプリ用の仮想環境・FR-12)。診断はアプリのログへ
@@ -280,6 +296,13 @@ class App:
         elif generate and not local and st["provider"] == "openai" and not target.model:
             self.web.status("OpenAI のモデルが選ばれていないため、回答候補とサマリは作りません(⚙ で選ぶ)")
             key = target.api_key = None
+        # 会議の文字起こし(FR-2b・2026-10-18): 「録音を開始」で Soniox を選んだ会議だけ、音声を Soniox へ送る(LOCAL では使わない)
+        stt, soniox_key = ("soniox" if opts.get("stt") == "soniox" and not local else "local"), None
+        if stt == "soniox":
+            soniox_key = secrets.api_key("soniox")[0]
+            if not soniox_key:
+                self.web.status("Soniox のキーが無いため、このパソコンで文字起こしします(⚙ で登録)")
+                stt = "local"
         session = Session(cfg.sessions_root, mode=mode, privacy=privacy,
                           sources=[s.kind + ":" + s.channel + (":" + s.arg if s.arg else "") for s in self.sources],
                           model=self.model)
@@ -289,14 +312,15 @@ class App:
             session.write_meta()
         ui = MultiUI(self.term, self.web, _CaptionTap(self))   # 録音中の確定した字幕も翻訳へ
         p = Pipeline(cfg, session, ui, self.sources, api_key=key, llm_enabled=generate, jev_enabled=jev_on,
-                     model=self.model, target=target if st["provider"] != "openrouter" else None, jev_api_key=jev_key)
+                     model=self.model, target=target if st["provider"] != "openrouter" else None, jev_api_key=jev_key,
+                     stt=stt, soniox_key=soniox_key)
         p.overlay = False   # 画面はアプリのウィンドウ
         p.mcp_search = self._mcp_search_fn(privacy)   # Obsidian の MCP(FR-5b)。LOCAL では stdio / localhost だけ
         self.session, self.pipeline = session, p
         self.web.reset_history()
         self.web.set_state(recording=True, session=session.dir.name, title=title or library.DEFAULT_TITLE,
                            started_ms=session.started_ms, mode=mode, privacy=privacy, paused=False,
-                           llm=p.target.label if p.llm_enabled else "off")
+                           llm=p.target.label if p.llm_enabled else "off", stt=p.stt, stt_fallback={})
         self.web.push({"type": "session_started", "id": session.dir.name})
         try:
             await p.run(install_signals=False)
@@ -309,6 +333,8 @@ class App:
             if self._cli_pool:
                 self._cli_pool.set_warm({})
         self.term.status(f"counts={p.counts} session={session.dir}")
+        if self.redo_after:   # サマリの前に文字起こしを差し替える(サマリは差し替えた文から作る)
+            await self._redo(session, p)
         sp = None
         if self.summary:
             from .summary import build_summary
@@ -326,6 +352,46 @@ class App:
             m.close()
         self.web.set_state(saving=False)   # 次の録音を始められる(一覧にもこの記録が出る)
         self.web.push({"type": "session_done", "id": session.dir.name, "summary": bool(sp)})
+
+    async def _redo(self, session: Session, p: Pipeline) -> dict | None:
+        """録音後の文字起こしし直し(FR-9b)。「保存しています…」の間に裏で行い、進み具合を画面の saving_note に出す。
+        失敗・取り消し(アプリの終了)は会議中の文字起こしのまま。Mac(ヘルパーが --redo を持たない)・config で止めたとき・
+        録音が無いときは、画面に何も出さず、記録(metrics の redo_transcribe)に理由だけ残す。"""
+        m = Metrics(session.dir / "metrics.jsonl")
+        if self._shutdown and self._shutdown.is_set():   # 終了の途中で止まった録音はし直さない(待たせない)
+            m.emit("STOP", "redo_transcribe", ms=0, ok=False, reason="app_quit", lines=0, chars=0)
+            m.close()
+            return None
+        quiet = (redo.unavailable(self.cfg) in ("disabled", "unsupported")
+                 or not redo.tracks(session.dir, redo.read_meta(session.dir)))   # 録音しない設定の記録
+        if not quiet:
+            self.web.status("文字起こしを仕上げています…", code="redo")
+            self.web.set_state(saving_note="文字起こしを仕上げています…")
+        self._redo_cancel = asyncio.Event()
+        shown = [0]
+
+        def progress(pg: dict) -> None:   # 5% 刻みで画面へ(録音 2 本の通しの割合)
+            pct = int(((pg["track"] - 1) + min(1.0, pg["at_s"] / max(pg["audio_s"], 1e-6))) / pg["tracks"] * 100)
+            if pct >= shown[0] + 5:
+                shown[0] = pct
+                self.web.set_state(saving_note=f"文字起こしを仕上げています… {pct}%")
+
+        try:
+            res = await redo.redo_session(session.dir, self.cfg, replacer=self.replacer, metrics=m, cancel=self._redo_cancel,
+                                          on_progress=progress, stop_t0=getattr(p, "_stop_t0", None))
+        except Exception as e:  # noqa: BLE001 — し直しの失敗で保存は止めない
+            res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            m.emit("STOP", "redo_transcribe", ms=0, ok=False, error=res["error"], lines=0, chars=0)
+        finally:
+            m.close()
+            self._redo_cancel = None
+            if not quiet:
+                self.web.set_state(saving_note="")
+        self.term.status("redo: " + " ".join(f"{k}={res.get(k)}" for k in ("ok", "reason", "error", "lines", "chars", "ms")
+                                             if res.get(k) is not None))
+        if res.get("error"):
+            self.web.error(f"文字起こしの仕上げに失敗しました。会議中の文字起こしのままです({res['error']})")
+        return res
 
     # ---- ライブ字幕 ------------------------------------------------------------------
     CAPTION_LEASE_S = 20.0   # 画面は 5 s ごとに合図する。これだけ途絶えたら閉じたとみなして止める
@@ -452,6 +518,9 @@ class App:
     def _file_route(self, path: str):
         """GET /api/sessions/<id>/audio/<channel>.m4a → 録音した音声(Range 対応は WebUI 側)。"""
         parts = [unquote(x) for x in urlparse(path).path.split("/") if x]
+        if len(parts) == 4 and parts[:3] == ["api", "dictation", "audio"]:   # 音声入力の 1 回分の録音(履歴の再生)
+            f = self.dictation.audio(parts[3])
+            return (f, "audio/wav") if f else None
         if len(parts) == 5 and parts[:2] == ["api", "sessions"] and parts[3] == "audio":
             f = library.audio_file(self._roots(), parts[2], parts[4])
             return (f, "audio/mp4") if f else None
@@ -505,7 +574,8 @@ class App:
                 "openrouter_models": {"main": self.cfg.llm.model, "fast": self.cfg.llm.fast_model,
                                       "mid": self.cfg.planner.mid_model, "deep": self.cfg.planner.deep_model},
                 "obsidian": self._obsidian_view(),
-                "need_onboarding": not cur["onboarded"] and not any(v["set"] for p, v in keys.items() if p != "obsidian")}
+                "need_onboarding": not cur["onboarded"] and not any(v["set"] for p, v in keys.items()
+                                                                    if p not in ("obsidian", "soniox"))}
 
     def save_ui_settings(self, body: dict) -> tuple[int, object]:
         body = body or {}
@@ -770,6 +840,8 @@ class App:
     # ---- API(一覧・詳細・題名・設定) ----------------------------------------------------
     def _api(self, method: str, path: str, body: dict | None):
         parts = [unquote(x) for x in urlparse(path).path.split("/") if x]   # ["api", "sessions", id, ...]
+        if parts[:2] == ["api", "dictation"]:   # 音声入力(FR-14b)
+            return self.dictation.api(method, parts[2:], body, path)
         if parts == ["api", "settings"]:
             return (200, self.settings_view()) if method == "GET" else self.save_ui_settings(body or {})
         if method == "POST" and len(parts) == 3 and parts[:2] == ["api", "keys"] and parts[2] in ("save", "delete", "check"):
@@ -831,8 +903,9 @@ class App:
 
 
 def main(cfg: Config, *, sources: list[Source], port: int, window: bool, model: str | None,
-         llm_enabled: bool, summary: bool) -> int:
-    app = App(cfg, sources=sources, port=port, window=window, model=model, llm_enabled=llm_enabled, summary=summary)
+         llm_enabled: bool, summary: bool, redo_after: bool = True) -> int:
+    app = App(cfg, sources=sources, port=port, window=window, model=model, llm_enabled=llm_enabled, summary=summary,
+              redo_after=redo_after)
     t0 = time.time()
     asyncio.run(app.run())
     print(f"meetcue app: 終了({round(time.time() - t0)} s)")
